@@ -13,7 +13,7 @@ const double ticks_per_sec = 3200000000;
 const double timeLimit = 6.0;
 #else
 const double ticks_per_sec = 2800000000;
-const double timeLimit = 9.0;
+const double timeLimit = 9.1;
 #endif  // LOCAL
 inline double getTime() {
     uint32_t lo, hi;
