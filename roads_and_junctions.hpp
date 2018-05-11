@@ -191,7 +191,7 @@ class RoadsAndJunctions {
   }
   vector<int> buildJunctions(int _S, vector<int> _cities, double _junctionCost, double _failureProbability) {
     startTime = getTime();
-    S = _S;
+    S = _S+1;
     NC = _cities.size() / 2;
     cities.assign(NC, P(0, 0));
     for (int i=0; i < NC; i++) {
