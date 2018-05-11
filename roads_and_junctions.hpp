@@ -1,5 +1,6 @@
 #ifndef ROADS_AND_JUNCTIONS_HPP_
 #define ROADS_AND_JUNCTIONS_HPP_
+#include <cmath>
 #include <iostream>
 #include <vector>
 #include <queue>
@@ -79,7 +80,7 @@ class RoadsAndJunctions {
     }
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
-    cerr << "S:" << S << endl;
+    cerr << "S:" << S << "\tNC:" << NC << endl;
     buildRegions();
     buildCandidates();
     vector<int> res;
@@ -88,10 +89,40 @@ class RoadsAndJunctions {
       res.push_back(candidates[i].y);
       if (res.size() >= NC*2*2) break;
     }
+    cerr << "JS:" << res.size()/2 << endl;
     return res;
   }
   vector<int> buildRoads(vector<int> junctionStatus) {
-    return vector<int>();
+    vector<P> points = cities;
+    vector<int> status(NC, 1);
+    for (int i=0; i < junctionStatus.size(); i++) {
+      points.push_back(candidates[i]);
+      status.push_back(junctionStatus[i]);
+    }
+    priority_queue<pair<int, pair<int, int>>> que;
+    que.push(make_pair(0, make_pair(0, -1)));
+    vector<int> res;
+    vector<int> used(points.size(), 0);
+    while (!que.empty()) {
+      auto top = que.top();
+      auto idx = top.second.first;
+      auto prev = top.second.second;
+      que.pop();
+      if (used[idx]) continue;
+      used[idx] = 1;
+      if (prev != -1) {
+        res.push_back(prev);
+        res.push_back(idx);
+      }
+      for (int i=0; i < points.size(); i++) {
+        if (used[i] || status[i] == 0) continue;
+        int cy = points[idx].y - points[i].y;
+        int cx = points[idx].x - points[i].x;
+        int d = cy*cy+cx*cx;
+        que.push(make_pair(-d, make_pair(i, idx)));
+      }
+    }
+    return res;
   }
 };
 #endif  // ROADS_AND_JUNCTIONS_HPP_
