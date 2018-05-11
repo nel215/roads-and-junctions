@@ -12,6 +12,9 @@ const int dx[4] = {1, 0, -1, 0};
 struct P {
   int y, x;
   P(int _y, int _x): y(_y), x(_x) {}
+  bool operator<(const P &p)const{
+    return y < p.y;
+  }
 };
 
 
@@ -29,13 +32,14 @@ class RoadsAndJunctions {
   }
   void buildRegions() {
     nearestCity.assign(S, vector<int>(S, -1));
-    queue<pair<P, int>> que;
+    priority_queue<pair<double, pair<P, int>>> que;
     for (int i=0; i < NC; i++) {
-      que.push(make_pair(cities[i], i));
+      que.push(make_pair(0, make_pair(cities[i], i)));
     }
     while (!que.empty()) {
-      auto pos = que.front().first;
-      auto parent = que.front().second;
+      auto top = que.top().second;
+      auto pos = top.first;
+      auto parent = top.second;
       que.pop();
       if (nearestCity[pos.y][pos.x] != -1) continue;
       nearestCity[pos.y][pos.x] = parent;
@@ -44,7 +48,10 @@ class RoadsAndJunctions {
         int nx = pos.x + dx[i];
         if (!valid(ny, nx)) continue;
         if (nearestCity[ny][nx] != -1) continue;
-        que.push(make_pair(P(ny, nx), parent));
+        int cy = ny-cities[parent].y;
+        int cx = nx-cities[parent].x;
+        double d = cy*cy+cx*cx;
+        que.push(make_pair(-d, make_pair(P(ny, nx), parent)));
       }
     }
     // debug
