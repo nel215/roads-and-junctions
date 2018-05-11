@@ -59,13 +59,18 @@ class RoadsAndJunctions {
   }
   void buildCandidates() {
     candidates.clear();
+    vector<int> used(NC, 0);
+    const int ey[4] = {0, 0, 1, 1};
+    const int ex[4] = {0, 1, 0, 1};
     for (int y=0; y < S-1; y++) {
       for (int x=0; x < S-1; x++) {
         int d = 0;
-        d += nearestCity[y][x] != nearestCity[y+1][x];
-        d += nearestCity[y][x] != nearestCity[y][x+1];
-        d += nearestCity[y][x] != nearestCity[y+1][x+1];
-        if (d >= 2) candidates.push_back(P(y, x));
+        for (int i=0; i < 4; i++) {
+          d += used[nearestCity[y+ey[i]][x+ex[i]]] == 0;
+          used[nearestCity[y+ey[i]][x+ex[i]]]++;
+        }
+        for (int i=0; i < 4; i++) used[nearestCity[y+ey[i]][x+ex[i]]]--;
+        if (d >= 3) candidates.push_back(P(y, x));
       }
     }
   }
