@@ -78,6 +78,7 @@ class RoadsAndJunctions {
     return 0 <= y && y < S && 0 <= x && x < S;
   }
   void buildRegions() {
+    cerr << "msg:build regions" << endl;
     nearestCity.assign(S, vector<int>(S, -1));
     priority_queue<pair<double, pair<P, int>>> que;
     for (int i=0; i < NC; i++) {
@@ -103,6 +104,7 @@ class RoadsAndJunctions {
     }
   }
   void buildCandidates() {
+    cerr << "msg:build candidates" << endl;
     candidates.clear();
     vector<int> used(NC, 0);
 
@@ -154,6 +156,7 @@ class RoadsAndJunctions {
     return res;
   }
   void anneal() {
+    cerr << "msg:start annealing" << endl;
     vector<int> numJunctions(candidates.size(), 0);
     bestNumJunctions = numJunctions;
     int sumNumber = 0;
