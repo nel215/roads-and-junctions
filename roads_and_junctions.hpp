@@ -25,6 +25,7 @@ class RoadsAndJunctions {
   double junctionCost;
   double failureProbability;
   vector<vector<int> > nearestCity;
+  vector<P> candidates;
 
  public:
   bool valid(int y, int x)const {
@@ -54,12 +55,17 @@ class RoadsAndJunctions {
         que.push(make_pair(-d, make_pair(P(ny, nx), parent)));
       }
     }
-    // debug
-    for (int y=0; y < S; y++) {
-      for (int x=0; x < S; x++) {
-        cerr << nearestCity[y][x];
+  }
+  void buildCandidates() {
+    candidates.clear();
+    for (int y=0; y < S-1; y++) {
+      for (int x=0; x < S-1; x++) {
+        int d = 0;
+        d += nearestCity[y][x] != nearestCity[y+1][x];
+        d += nearestCity[y][x] != nearestCity[y][x+1];
+        d += nearestCity[y][x] != nearestCity[y+1][x+1];
+        if (d >= 2) candidates.push_back(P(y, x));
       }
-      cerr << endl;
     }
   }
   vector<int> buildJunctions(int _S, vector<int> _cities, double _junctionCost, double _failureProbability) {
@@ -74,6 +80,7 @@ class RoadsAndJunctions {
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
     buildRegions();
+    buildCandidates();
     return vector<int>();
   }
   vector<int> buildRoads(vector<int> junctionStatus) {
