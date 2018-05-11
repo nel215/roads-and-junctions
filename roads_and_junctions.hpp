@@ -171,7 +171,6 @@ class RoadsAndJunctions {
       numJunctions[idx] += inst;
       sumNumber += inst;
       double score = solve(numJunctions);
-      // cerr << score << endl;
       if (score < currentScore) {
         currentScore = score;
       } else {
@@ -221,9 +220,11 @@ class RoadsAndJunctions {
     return res;
   }
   vector<int> buildRoads(vector<int> junctionStatus) {
+    double score = 0;
     vector<P> points = cities;
     vector<int> status(NC, 1);
     for (int i=0; i < junctionStatus.size(); i++) {
+      if (junctionStatus[i] == 1) score += junctionCost;
       points.push_back(junctions[i]);
       status.push_back(junctionStatus[i]);
     }
@@ -231,7 +232,6 @@ class RoadsAndJunctions {
     que.push(make_pair(0, make_pair(0, -1)));
     vector<int> res;
     vector<int> used(points.size(), 0);
-    double c = 0;
     while (!que.empty()) {
       auto top = que.top();
       auto idx = top.second.first;
@@ -240,7 +240,7 @@ class RoadsAndJunctions {
       if (used[idx]) continue;
       used[idx] = 1;
       if (prev != -1) {
-        c += sqrt(-top.first);
+        score += sqrt(-top.first);
         res.push_back(prev);
         res.push_back(idx);
       }
@@ -252,7 +252,7 @@ class RoadsAndJunctions {
         que.push(make_pair(-d, make_pair(i, idx)));
       }
     }
-    cerr << c << endl;
+    cerr << "score:" << score << endl;
     return res;
   }
 };
