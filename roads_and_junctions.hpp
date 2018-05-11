@@ -79,9 +79,16 @@ class RoadsAndJunctions {
     }
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
+    cerr << "S:" << S << endl;
     buildRegions();
     buildCandidates();
-    return vector<int>();
+    vector<int> res;
+    for (int i=0; i < candidates.size(); i++) {
+      res.push_back(candidates[i].x);
+      res.push_back(candidates[i].y);
+      if (res.size() >= NC*2*2) break;
+    }
+    return res;
   }
   vector<int> buildRoads(vector<int> junctionStatus) {
     return vector<int>();
