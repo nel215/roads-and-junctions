@@ -10,6 +10,7 @@
 #include <complex>
 #include <algorithm>
 using namespace std;
+const double pi = acos(-1);
 
 #ifdef LOCAL
 const double ticks_per_sec = 3200000000;
@@ -80,6 +81,12 @@ double dot(const P& a, const P& b) {
   return real(conj(a)*b);
 }
 
+P rot(const P &p, double theta) {
+	double s = sin(theta);
+	double c = cos(theta);
+	return P(c, -s)*p;
+}
+
 int ccw(P a, P b, P c) {
   b -= a; c -= a;
   if (cross(b, c) > 0)   return +1;       // counter clockwise
@@ -87,6 +94,12 @@ int ccw(P a, P b, P c) {
   if (dot(b, c) < 0)     return +2;       // c--a--b on line
   if (norm(b) < norm(c)) return -2;       // a--b--c on line
   return 0;
+}
+
+P crossLL(const P &l0, const P &l1, const P &m0, const P &m1) {
+    double num = cross(m1-m0, m0-l0);
+    double denom = cross(m1-m0, l1-l0);
+    return l0+(l1-l0)*num/denom;
 }
 
 class DelaunayTriangulation {
@@ -204,18 +217,128 @@ class RoadsAndJunctions {
   vector<Point> candidates;
   double startTime;
   vector<int> bestNumJunctions;
+  vector<Point> bestCandidates;
   vector<Point> junctions;
+  struct Node {
+    int idx;
+    int prev;
+    int cost;
+    Node(int _idx, int _prev, int _cost) {
+      idx = _idx;
+      prev = _prev;
+      cost = _cost;
+    }
+    bool operator<(const Node &n)const {
+      return cost > n.cost;
+    }
+  };
+  struct Edge {
+    int f, t;
+    int cost;
+    Edge(int _f, int _t, int _cost) {
+      f = _f;
+      t = _t;
+      cost = _cost;
+    }
+  };
 
  public:
   bool valid(int y, int x)const {
     return 0 <= y && y < S && 0 <= x && x < S;
   }
-
+  inline int mypow(int a) {
+    return a*a;
+  }
+  int calcSteinerCost(int i, int j, int k, int y, int x, const vector<Point> &ps) {
+    return mypow(ps[i].y-y) + mypow(ps[j].y-y) + mypow(ps[k].y-y) +
+           mypow(ps[i].x-x) + mypow(ps[j].x-x) + mypow(ps[k].x-x);
+  }
+  void buildInitialMST() {
+    vector<Point> ps = cities;
+    while (1) {
+      const int n = ps.size();
+      priority_queue<Node> que;
+      vector<int> used(n, 0);
+      vector<vector<pair<int, int>>> link(n, vector<pair<int, int>>());
+      vector<Edge> edge;
+      que.push(Node(0, -1, 0));
+      while (!que.empty()) {
+        auto cn = que.top();
+        que.pop();
+        int cy = ps[cn.idx].y;
+        int cx = ps[cn.idx].x;
+        if (used[cn.idx]) continue;
+        used[cn.idx] = 1;
+        if (cn.prev != -1) {
+          edge.push_back(Edge(cn.prev, cn.idx, cn.cost));
+          link[cn.prev].push_back(make_pair(cn.idx, cn.cost));
+          link[cn.idx].push_back(make_pair(cn.prev, cn.cost));
+        }
+        for (int i=0; i < n; i++) {
+          if (used[i]) continue;
+          int yy = cy-ps[i].y;
+          int xx = cx-ps[i].x;
+          int ncost = yy*yy+xx*xx;
+          que.push(Node(i, cn.idx, ncost));
+        }
+      }
+      const double thres = 2.0943951023931953;
+      auto bestPoint = make_pair(0.0, Point(-1, -1));
+      for (int idx=0; idx < edge.size(); idx++) {
+        auto e = edge[idx];
+        for (auto tmp : link[e.f]) {
+          int v = tmp.first;
+          if (v == e.t) continue;
+          int oldCost = e.cost + tmp.second;
+          // v -> f -> t
+          P a(ps[v].x, ps[v].y);
+          P b(ps[e.f].x, ps[e.f].y);
+          P c(ps[e.t].x, ps[e.t].y);
+          double d = 0;
+          d = max(d, abs(arg((c-b)/(a-b))));
+          d = max(d, abs(arg((b-a)/(c-a))));
+          d = max(d, abs(arg((a-c)/(b-c))));
+          if (d >= thres) continue;
+          P p = a + b + c;
+          int y = p.imag() / 3;
+          int x = p.real() / 3;
+          int cost = calcSteinerCost(v, e.f, e.t, y, x, ps);
+          while (1) {
+            int bestDir = 0;
+            int bestCost = 1<<30;
+            for (int i=0; i < 4; i++) {
+              if (!valid(y+dy[i], x+dx[i])) continue;
+              int newCost = calcSteinerCost(v, e.f, e.t, y+dy[i], x+dx[i], ps);
+              if (newCost < bestCost) {
+                bestDir = i;
+                bestCost = newCost;
+              }
+            }
+            if (bestCost < cost) {
+              cost = bestCost;
+              y += dy[bestDir];
+              x += dx[bestDir];
+            } else {
+              break;
+            }
+          }
+          double diff = sqrt(oldCost) - (sqrt(cost) + junctionCost);
+          if (diff > bestPoint.first) {
+            bestPoint = make_pair(diff, Point(y, x));
+          }
+        }
+      }
+      if (bestPoint.first == 0) break;
+      cerr << "improve:" << bestPoint.first << endl;
+      candidates.push_back(bestPoint.second);
+      ps.push_back(bestPoint.second);
+    }
+  }
   void buildDelaunay() {
     DelaunayTriangulation tri(cities);
     auto g = tri.solve();
     set<Point> cand;
-    P up(0, 1);
+    P up(1, 1e7);
     for (int i=0; i < NC; i++) {
       vector<pair<double, int>> clockwise;
       for (auto v : g[i]) {
@@ -281,9 +404,9 @@ class RoadsAndJunctions {
     vector<Point> junctions;
     for (int i=0; i < numJunctions.size(); i++) {
       if (numJunctions[i] == 0) continue;
-      // TODO: consider probablity
-      res += numJunctions[i] * junctionCost;
       for (int j=0; j < min(4, numJunctions[i]); j++) {
+        if (rng.uniform() < failureProbability) continue;
+        res += junctionCost;
         int y = candidates[i].y + ey[j];
         int x = candidates[i].x + ex[j];
         junctions.push_back(Point(y, x));
@@ -311,27 +434,73 @@ class RoadsAndJunctions {
     }
     return res;
   }
+  bool movable(const double score, const double currentScore, const double temperatue) {
+    double p = exp(min(2.0, currentScore - score)) - temperatue;
+    return p > rng.uniform();
+  }
   void anneal() {
+    vector<int> actions = {
+      0,  // up/down
+      1   // move
+    };
     cerr << "msg:start annealing" << endl;
     vector<int> numJunctions(candidates.size(), 0);
     bestNumJunctions = numJunctions;
+    bestCandidates = bestCandidates;
     int sumNumber = 0;
     double bestScore = 1e10;
     double currentScore = 1e10;
-    while (getTime() - startTime < timeLimit) {
+    const int trial = 5;
+    while (1) {
+      double elapsed = getTime() - startTime;
+      if (elapsed >= timeLimit) break;
+      double temperatue = 1. - elapsed / timeLimit;  // 1->0
       int idx = rng.rand() % candidates.size();
-      int inst = 1 - 2*(rng.rand() & 1);
-      if (sumNumber == 0) inst = 1;
-      if (sumNumber >= 2*NC) inst = -1;
-      if (numJunctions[idx] == 0 && inst == -1) continue;
-      numJunctions[idx] += inst;
-      sumNumber += inst;
-      double score = solve(numJunctions);
-      if (score < currentScore) {
-        currentScore = score;
-      } else {
-        numJunctions[idx] -= inst;
-        sumNumber -= inst;
+      int act = actions[rng.rand() % 2];
+      if (act == 0) {
+        int inst = 1 - 2*(rng.rand() & 1);
+        if (sumNumber == 0) inst = 1;
+        if (sumNumber >= 2*NC) inst = -1;
+        if (numJunctions[idx] == 0 && inst == -1) continue;
+        numJunctions[idx] += inst;
+        sumNumber += inst;
+        double score = 0;
+        for (int i=0; i < trial; i++) {
+          score += solve(numJunctions);
+        }
+        score /= trial;
+        if (movable(score, currentScore, temperatue)) {
+          currentScore = score;
+        } else {
+          numJunctions[idx] -= inst;
+          sumNumber -= inst;
+        }
+      }
+      if (act == 1) {
+        int xy = rng.rand() & 1;
+        int inst = 1 - 2*(rng.rand() & 1);
+        if (xy) {
+          candidates[idx].x += inst;
+        } else {
+          candidates[idx].y += inst;
+        }
+        double score = 1e10;
+        if (valid(candidates[idx].y, candidates[idx].x)) {
+          score = 0;
+          for (int i=0; i < trial; i++) {
+            score += solve(numJunctions);
+          }
+          score /= trial;
+        }
+        if (movable(score, currentScore, temperatue)) {
+          currentScore = score;
+        } else {
+          if (xy) {
+            candidates[idx].x -= inst;
+          } else {
+            candidates[idx].y -= inst;
+          }
+        }
       }
       if (currentScore < bestScore) {
         for (int i=0; i < numJunctions.size(); i++) {
@@ -340,6 +509,7 @@ class RoadsAndJunctions {
         cerr << endl;
         bestScore = currentScore;
         bestNumJunctions = numJunctions;
+        bestCandidates = candidates;
         cerr << bestScore << endl;
       }
     }
@@ -357,7 +527,8 @@ class RoadsAndJunctions {
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
     cerr << "S:" << S << "\tNC:" << NC << endl;
-    buildDelaunay();
+    buildInitialMST();
+    // buildDelaunay();
     // buildRegions();
     // buildCandidates();
     anneal();
@@ -367,8 +538,8 @@ class RoadsAndJunctions {
       // bestNumJunctions[i] = 1;
       if (bestNumJunctions[i] == 0) continue;
       for (int j=0; j < min(4, bestNumJunctions[i]); j++) {
-        int y = candidates[i].y+ey[j];
-        int x = candidates[i].x+ex[j];
+        int y = bestCandidates[i].y+ey[j];
+        int x = bestCandidates[i].x+ex[j];
         res.push_back(x);
         res.push_back(y);
         junctions.push_back(Point(y, x));
