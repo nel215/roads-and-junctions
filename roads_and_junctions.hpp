@@ -219,6 +219,7 @@ class RoadsAndJunctions {
   vector<int> bestNumJunctions;
   vector<Point> bestCandidates;
   vector<Point> junctions;
+  vector<vector<uint8_t>> occupied;
   struct Node {
     int idx;
     int prev;
@@ -308,6 +309,7 @@ class RoadsAndJunctions {
             int bestCost = 1<<30;
             for (int i=0; i < 4; i++) {
               if (!valid(y+dy[i], x+dx[i])) continue;
+              if (occupied[y+dy[i]][x+dx[i]]) continue;
               int newCost = calcSteinerCost(v, e.f, e.t, y+dy[i], x+dx[i], ps);
               if (newCost < bestCost) {
                 bestDir = i;
@@ -405,7 +407,7 @@ class RoadsAndJunctions {
     for (int i=0; i < numJunctions.size(); i++) {
       if (numJunctions[i] == 0) continue;
       for (int j=0; j < min(4, numJunctions[i]); j++) {
-        if (rng.uniform() < failureProbability) continue;
+        // if (rng.uniform() < failureProbability) continue;
         res += junctionCost;
         int y = candidates[i].y + ey[j];
         int x = candidates[i].x + ex[j];
@@ -444,13 +446,14 @@ class RoadsAndJunctions {
       1   // move
     };
     cerr << "msg:start annealing" << endl;
+    if (candidates.empty()) return;
     vector<int> numJunctions(candidates.size(), 0);
     bestNumJunctions = numJunctions;
     bestCandidates = bestCandidates;
     int sumNumber = 0;
     double bestScore = 1e10;
     double currentScore = 1e10;
-    const int trial = 5;
+    const int trial = 1;
     while (1) {
       double elapsed = getTime() - startTime;
       if (elapsed >= timeLimit) break;
@@ -519,10 +522,12 @@ class RoadsAndJunctions {
     S = _S+1;
     NC = _cities.size() / 2;
     cities.assign(NC, Point(0, 0));
+    occupied.assign(S, vector<uint8_t>(S, 0));
     for (int i=0; i < NC; i++) {
       int x = _cities[2*i+0];
       int y = _cities[2*i+1];
       cities[i] = Point(y, x);
+      occupied[y][x] = 1;
     }
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
@@ -540,6 +545,8 @@ class RoadsAndJunctions {
       for (int j=0; j < min(4, bestNumJunctions[i]); j++) {
         int y = bestCandidates[i].y+ey[j];
         int x = bestCandidates[i].x+ex[j];
+        if (occupied[y][x]) continue;
+        occupied[y][x] = 1;
         res.push_back(x);
         res.push_back(y);
         junctions.push_back(Point(y, x));
