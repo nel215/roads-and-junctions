@@ -1,10 +1,13 @@
 #ifndef ROADS_AND_JUNCTIONS_HPP_
 #define ROADS_AND_JUNCTIONS_HPP_
 #include <cmath>
+#include <set>
+#include <stack>
 #include <iostream>
 #include <vector>
 #include <queue>
 #include <utility>
+#include <complex>
 #include <algorithm>
 using namespace std;
 
@@ -53,34 +56,187 @@ const int dx[4] = {1, 0, -1, 0};
 const int ey[4] = {0, 0, 1, 1};
 const int ex[4] = {0, 1, 0, 1};
 
-struct P {
+struct Point {
   int y, x;
-  P(int _y, int _x): y(_y), x(_x) {}
-  bool operator<(const P &p)const{
-    return y < p.y;
+  Point(int _y, int _x): y(_y), x(_x) {}
+  bool operator<(const Point &p)const{
+    return y*2000+x < p.y*2000+p.x;
+  }
+};
+
+// geometry
+typedef complex<double> P;
+namespace std {
+  bool operator < (const P& a, const P& b) {
+    return real(a) != real(b) ? real(a) < real(b) : imag(a) < imag(b);
+  }
+}
+
+double cross(const P& a, const P& b) {
+  return imag(conj(a)*b);
+}
+
+double dot(const P& a, const P& b) {
+  return real(conj(a)*b);
+}
+
+int ccw(P a, P b, P c) {
+  b -= a; c -= a;
+  if (cross(b, c) > 0)   return +1;       // counter clockwise
+  if (cross(b, c) < 0)   return -1;       // clockwise
+  if (dot(b, c) < 0)     return +2;       // c--a--b on line
+  if (norm(b) < norm(c)) return -2;       // a--b--c on line
+  return 0;
+}
+
+class DelaunayTriangulation {
+  const vector<Point> &origin;
+  vector<P> ps;
+  stack<pair<int, int>> S;
+  vector<vector<int>> em;
+  vector<set<int>> E;
+  void setTriangle(int i, int j, int r) {
+    // cerr << "set " << i << " " << j << " " << r << endl;
+    E[i].insert(j);
+    E[j].insert(r);
+    E[r].insert(i);
+    em[i][j] = r;
+    em[j][r] = i;
+    em[r][i] = j;
+    S.push(make_pair(i, j));
+  }
+  void removeEdge(int i, int j) {
+    // cerr << "remove " << i << " " << j << endl;
+    E[i].erase(j);
+    E[j].erase(i);
+    em[i][j] = em[j][i] = -1;
+  }
+  void decomposeOn(int i, int j, int k, int r) {
+    // cerr << "on" << i << " " << j << " " << k << " " << r << endl;
+    int m = em[j][i];
+    removeEdge(j, i);
+    setTriangle(i, m, r);
+    setTriangle(m, j, r);
+    setTriangle(j, k, r);
+    setTriangle(k, i, r);
+  }
+  void decomposeIn(int i, int j, int k, int r) {
+    // cerr << "in" << i << " " << j << " " << k << " " << r << endl;
+    setTriangle(i, j, r);
+    setTriangle(j, k, r);
+    setTriangle(k, i, r);
+  }
+
+  void flipEdge(int i, int j, int r) {
+    // cerr << "flip " << i << " " << j << " " << r << endl;
+    int k = em[j][i];
+    removeEdge(i, j);
+    setTriangle(i, k, r);
+    setTriangle(k, j, r);
+  }
+  bool isLegal(int i, int j) {
+    // cerr << "legal " << i << " " << j << endl;
+    return (em[i][j] < 0 || em[j][i] < 0 || !incircle(ps[i], ps[j], ps[em[i][j]], ps[em[j][i]]));
+  }
+  bool incircle(P a, P b, P c, P p) {
+    a -= p; b -= p; c -= p;
+    return norm(a) * cross(b, c)
+         + norm(b) * cross(c, a)
+         + norm(c) * cross(a, b) >= 0; // < : inside, = cocircular, > outside
+  }
+
+ public:
+  explicit DelaunayTriangulation(const vector<Point> &_origin): origin(_origin) {
+  }
+  vector<set<int>> solve() {
+    const int n = origin.size();
+    const int m = n + 3;
+    ps.resize(n);
+    for (int i=0; i < n; i++) ps[i] = P(origin[i].x, origin[i].y);
+    ps.push_back(P(-1e7, -1e7));
+    ps.push_back(P(+1e7, -1e7));
+    ps.push_back(P(0, 1e7));
+    em.assign(m, vector<int>(m, -1));
+    E.assign(m, set<int>());
+    S = stack<pair<int, int>>();
+    setTriangle(n, n+1, n+2);
+    for (int r=0; r < n; r++) {
+      int i = n, j = n+1, k;
+      while (1) {
+        k = em[i][j];
+        if (ccw(ps[i], ps[em[i][j]], ps[r]) == +1) {
+          j = k;
+        } else if (ccw(ps[j], ps[em[i][j]], ps[r]) == -1) {
+          i = k;
+        } else { break; }
+      }
+      if (ccw(ps[i], ps[j], ps[r]) != +1) {
+        decomposeOn(i, j, k, r);
+      } else if (ccw(ps[j], ps[k], ps[r]) != +1) {
+        decomposeOn(j, k, i, r);
+      } else if (ccw(ps[k], ps[i], ps[r]) != +1) {
+        decomposeOn(k, i, j, r);
+      } else {
+        decomposeIn(i, j, k, r);
+      }
+      while (!S.empty()) {
+        int u = S.top().first, v = S.top().second;
+        S.pop();
+        if (!isLegal(u, v)) flipEdge(u, v, r);
+      }
+    }
+    for (int r=0; r < n; r++) {
+      E[r].erase(n);
+      E[r].erase(n+1);
+      E[r].erase(n+2);
+    }
+    return E;
   }
 };
 
 class RoadsAndJunctions {
   int S;
   int NC;
-  vector<P> cities;
+  vector<Point> cities;
   double junctionCost;
   double failureProbability;
   vector<vector<int> > nearestCity;
-  vector<P> candidates;
+  vector<Point> candidates;
   double startTime;
   vector<int> bestNumJunctions;
-  vector<P> junctions;
+  vector<Point> junctions;
 
  public:
   bool valid(int y, int x)const {
     return 0 <= y && y < S && 0 <= x && x < S;
   }
+
+  void buildDelaunay() {
+    DelaunayTriangulation tri(cities);
+    auto g = tri.solve();
+    set<Point> cand;
+    P up(0, 1);
+    for (int i=0; i < NC; i++) {
+      vector<pair<double, int>> clockwise;
+      for (auto v : g[i]) {
+        P p(cities[v].x-cities[i].x, cities[v].y-cities[i].y);
+        clockwise.push_back(make_pair(arg(p / up), v));
+      }
+      sort(clockwise.begin(), clockwise.end());
+      for (int j=0; j+1 < clockwise.size(); j++) {
+        int a = clockwise[j].second;
+        int b = clockwise[j+1].second;
+        int y = (cities[i].y + cities[a].y + cities[b].y) / 3;
+        int x = (cities[i].x + cities[a].x + cities[b].x) / 3;
+        cand.insert(Point(y, x));
+      }
+    }
+    candidates = vector<Point>(cand.begin(), cand.end());
+  }
   void buildRegions() {
     cerr << "msg:build regions" << endl;
     nearestCity.assign(S, vector<int>(S, -1));
-    priority_queue<pair<double, pair<P, int>>> que;
+    priority_queue<pair<double, pair<Point, int>>> que;
     for (int i=0; i < NC; i++) {
       que.push(make_pair(0, make_pair(cities[i], i)));
     }
@@ -99,7 +255,7 @@ class RoadsAndJunctions {
         int cy = ny-cities[parent].y;
         int cx = nx-cities[parent].x;
         double d = cy*cy+cx*cx;
-        que.push(make_pair(-d, make_pair(P(ny, nx), parent)));
+        que.push(make_pair(-d, make_pair(Point(ny, nx), parent)));
       }
     }
   }
@@ -116,13 +272,13 @@ class RoadsAndJunctions {
           used[nearestCity[y+ey[i]][x+ex[i]]]++;
         }
         for (int i=0; i < 4; i++) used[nearestCity[y+ey[i]][x+ex[i]]]--;
-        if (d >= 3) candidates.push_back(P(y, x));
+        if (d >= 3) candidates.push_back(Point(y, x));
       }
     }
   }
   double solve(const vector<int> &numJunctions) {
     double res = 0;
-    vector<P> junctions;
+    vector<Point> junctions;
     for (int i=0; i < numJunctions.size(); i++) {
       if (numJunctions[i] == 0) continue;
       // TODO: consider probablity
@@ -130,7 +286,7 @@ class RoadsAndJunctions {
       for (int j=0; j < min(4, numJunctions[i]); j++) {
         int y = candidates[i].y + ey[j];
         int x = candidates[i].x + ex[j];
-        junctions.push_back(P(y, x));
+        junctions.push_back(Point(y, x));
       }
     }
     auto points = cities;
@@ -192,36 +348,39 @@ class RoadsAndJunctions {
     startTime = getTime();
     S = _S+1;
     NC = _cities.size() / 2;
-    cities.assign(NC, P(0, 0));
+    cities.assign(NC, Point(0, 0));
     for (int i=0; i < NC; i++) {
       int x = _cities[2*i+0];
       int y = _cities[2*i+1];
-      cities[i] = P(y, x);
+      cities[i] = Point(y, x);
     }
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
     cerr << "S:" << S << "\tNC:" << NC << endl;
-    buildRegions();
-    buildCandidates();
+    buildDelaunay();
+    // buildRegions();
+    // buildCandidates();
     anneal();
     junctions.clear();
     vector<int> res;
     for (int i=0; i < bestNumJunctions.size(); i++) {
+      // bestNumJunctions[i] = 1;
       if (bestNumJunctions[i] == 0) continue;
       for (int j=0; j < min(4, bestNumJunctions[i]); j++) {
         int y = candidates[i].y+ey[j];
         int x = candidates[i].x+ex[j];
         res.push_back(x);
         res.push_back(y);
-        junctions.push_back(P(y, x));
+        junctions.push_back(Point(y, x));
       }
+      if (junctions.size() >= 2*NC) break;
     }
     cerr << "JS:" << junctions.size() << endl;
     return res;
   }
   vector<int> buildRoads(vector<int> junctionStatus) {
     double score = 0;
-    vector<P> points = cities;
+    vector<Point> points = cities;
     vector<int> status(NC, 1);
     for (int i=0; i < junctionStatus.size(); i++) {
       if (junctionStatus[i] == 1) score += junctionCost;
