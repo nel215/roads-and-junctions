@@ -291,6 +291,18 @@ class RoadsAndJunctions {
 #endif
   }
 
+  int calcSteinerCost2(int a, int b, int c, int d, int y1, int x1, int y2, int x2, const vector<Point> &ps) {
+    int ayy = ps[a].y - y1, axx = ps[a].x - x1;
+    int byy = ps[b].y - y1, bxx = ps[b].x - x1;
+    int cyy = ps[c].y - y2, cxx = ps[c].x - x2;
+    int dyy = ps[d].y - y2, dxx = ps[d].x - x2;
+    int yy = y1 - y2, xx = x1 - x2;
+    return mypow(ayy) + mypow(axx) +
+           mypow(byy) + mypow(bxx) +
+           mypow(cyy) + mypow(cxx) +
+           mypow(dyy) + mypow(dxx) +
+           mypow(yy) + mypow(xx);
+  }
   void buildInitialMST() {
     vector<Point> ps = cities;
     auto candOccupied = occupied;
@@ -321,7 +333,102 @@ class RoadsAndJunctions {
           que.push(Node(i, cn.idx, ncost));
         }
       }
+      // find pair
+      auto bestPair = make_pair(make_pair(0.0, 0), make_pair(Point(), Point()));
+      for (int i=0; i < edge.size(); i++) {
+        auto ei = edge[i];
+        P a(ps[ei.f].x, ps[ei.f].y);
+        P b(ps[ei.t].x, ps[ei.t].y);
+        for (int j=i+1; j < edge.size(); j++) {
+          auto ej = edge[j];
+          if (ej.f == ei.f || ej.f == ei.t) continue;
+          if (ej.t == ei.f || ej.t == ei.t) continue;
+          double oldCost = sqrt(ei.cost + ej.cost);
+          if (oldCost < 30) continue;
+          P c(ps[ej.f].x, ps[ej.f].y);
+          P d(ps[ej.t].x, ps[ej.t].y);
+          // a-b and c-d
+          P X = (a + b) * 0.5;
+          P Y = (c + d) * 0.5;
+          P Z1 = 0.7 * X + 0.3 * Y;
+          P Z2 = 0.3 * X + 0.7 * Y;
+          int y1 = Z1.imag(), x1 = Z1.real();
+          int y2 = Z2.imag(), x2 = Z2.real();
+          int cost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+          if (sqrt(cost) >= oldCost) continue;
+          while (1) {
+            bool updated = false;
+            int bestDir = 0;
+            int bestCost = 1<<30;
+            for (int i=0; i < 4; i++) {
+              int y = y1+dy[i], x = x1+dx[i];
+              if (!valid(y, x)) continue;
+              if (candOccupied[y][x]) continue;
+              int newCost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+              if (newCost < bestCost) {
+                bestDir = i;
+                bestCost = newCost;
+              }
+            }
+            if (bestCost < cost) {
+              cost = bestCost;
+              y1 += dy[bestDir];
+              x1 += dx[bestDir];
+              updated = true;
+            }
+            bestDir = 0;
+            bestCost = 1<<30;
+            for (int i=0; i < 4; i++) {
+              int y = y2+dy[i], x = x2+dx[i];
+              if (!valid(y, x)) continue;
+              if (candOccupied[y][x]) continue;
+              int newCost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+              if (newCost < bestCost) {
+                bestDir = i;
+                bestCost = newCost;
+              }
+            }
+            if (bestCost < cost) {
+              cost = bestCost;
+              y2 += dy[bestDir];
+              x2 += dx[bestDir];
+              updated = true;
+            }
+            if (!updated) break;
+          }
+          if (candOccupied[y1][x1] || candOccupied[y2][x2]) continue;
+          cost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+          auto maxDiff = make_pair(0.0, 0);
+          for (int cnt=1; cnt < multipleCost.size(); cnt++) {
+            double sucP = multipleCost[cnt].second;
+            sucP = sucP*sucP;
+            if (sucP < 0.7) continue;
+            double d = sucP * (oldCost - (sqrt(cost) + 2*multipleCost[cnt].first + 4*(cnt-1)));
+            if (maxDiff.first < d) maxDiff = make_pair(d, cnt);
+          }
+          if (maxDiff.first > bestPair.first.first) {
+            bestPair = make_pair(maxDiff, make_pair(Point(y1, x1), Point(y2, x2)));
+          }
+        }
+      }
+      if (bestPair.first.first > 30.0) {
+        cerr << "improve by pair:" << bestPair.first.first << " " << bestPair.first.second << endl;
+        auto p1 = bestPair.second.first;
+        auto p2 = bestPair.second.second;
+        if (candOccupied[p1.y][p1.x] == 0 && candOccupied[p2.y][p2.x] == 0) {
+          candOccupied[p1.y][p1.x] = 1;
+          candOccupied[p2.y][p2.x] = 1;
+          candidates.push_back(Cluster(p1, bestPair.first.second));
+          candidates.push_back(Cluster(p2, bestPair.first.second));
+          ps.push_back(p1);
+          ps.push_back(p2);
+        }
+        continue;
+      }
+
+      // find point
       const double thres = 2.0943951023931953;
+
       auto bestPoint = make_pair(make_pair(0.0, 0), Point(-1, -1));
       for (int idx=0; idx < edge.size(); idx++) {
         auto e = edge[idx];
@@ -368,6 +475,8 @@ class RoadsAndJunctions {
             double sucP = multipleCost[cnt].second;
             if (sucP < 0.70) continue;
             double d = sucP * (oldCost - (sqrt(cost) + multipleCost[cnt].first + 2*(cnt-1)));
+            // double d = (oldCost - (sqrt(cost) + multipleCost[cnt].first));  // + 2*(cnt-1)));
+            // double d = (oldCost - (sqrt(cost) + multipleCost[cnt].first + 2*(cnt-1)));
             if (maxDiff.first < d) maxDiff = make_pair(d, cnt);
           }
           if (maxDiff.first > bestPoint.first.first) {
@@ -375,14 +484,17 @@ class RoadsAndJunctions {
           }
         }
       }
-      if (bestPoint.first.first <= 0) break;
-      cerr << "improve:" << bestPoint.first.first << " " << bestPoint.first.second << " " << bestPoint.second.x << " " << bestPoint.second.y << endl;
-      auto p = bestPoint.second;
-      if (candOccupied[p.y][p.x] == 0) {
-        candOccupied[p.y][p.x] = 1;
-        candidates.push_back(Cluster(p, bestPoint.first.second));
-        ps.push_back(p);
+      if (bestPoint.first.first > 0.0) {
+        cerr << "improve by point:" << bestPoint.first.first << " " << bestPoint.first.second << " " << bestPoint.second.x << " " << bestPoint.second.y << endl;
+        auto p = bestPoint.second;
+        if (candOccupied[p.y][p.x] == 0) {
+          candOccupied[p.y][p.x] = 1;
+          candidates.push_back(Cluster(p, bestPoint.first.second));
+          ps.push_back(p);
+        }
+        continue;
       }
+      break;
     }
   }
   double solve(const vector<int> &numJunctions) {
@@ -393,6 +505,8 @@ class RoadsAndJunctions {
       for (int j=0; j < min(1, numJunctions[i]); j++) {
         // if (rng.uniform() < failureProbability) continue;
         int c = candidates[i].cnt;
+        // cerr << c << endl;
+        // res += multipleCost[c].first + (c-1);
         res += multipleCost[c].first;
         int y = candidates[i].p.y + ey[j];
         int x = candidates[i].p.x + ex[j];
