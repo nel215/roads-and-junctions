@@ -385,71 +385,6 @@ class RoadsAndJunctions {
       }
     }
   }
-  void buildDelaunay() {
-    DelaunayTriangulation tri(cities);
-    auto g = tri.solve();
-    set<Point> cand;
-    P up(1, 1e7);
-    for (int i=0; i < NC; i++) {
-      vector<pair<double, int>> clockwise;
-      for (auto v : g[i]) {
-        P p(cities[v].x-cities[i].x, cities[v].y-cities[i].y);
-        clockwise.push_back(make_pair(arg(p / up), v));
-      }
-      sort(clockwise.begin(), clockwise.end());
-      for (int j=0; j+1 < clockwise.size(); j++) {
-        int a = clockwise[j].second;
-        int b = clockwise[j+1].second;
-        int y = (cities[i].y + cities[a].y + cities[b].y) / 3;
-        int x = (cities[i].x + cities[a].x + cities[b].x) / 3;
-        cand.insert(Point(y, x));
-      }
-    }
-    // candidates = vector<Point>(cand.begin(), cand.end());
-  }
-  void buildRegions() {
-    cerr << "msg:build regions" << endl;
-    nearestCity.assign(S, vector<int>(S, -1));
-    priority_queue<pair<double, pair<Point, int>>> que;
-    for (int i=0; i < NC; i++) {
-      que.push(make_pair(0, make_pair(cities[i], i)));
-    }
-    while (!que.empty()) {
-      auto top = que.top().second;
-      auto pos = top.first;
-      auto parent = top.second;
-      que.pop();
-      if (nearestCity[pos.y][pos.x] != -1) continue;
-      nearestCity[pos.y][pos.x] = parent;
-      for (int i=0; i < 4; i++) {
-        int ny = pos.y + dy[i];
-        int nx = pos.x + dx[i];
-        if (!valid(ny, nx)) continue;
-        if (nearestCity[ny][nx] != -1) continue;
-        int cy = ny-cities[parent].y;
-        int cx = nx-cities[parent].x;
-        double d = cy*cy+cx*cx;
-        que.push(make_pair(-d, make_pair(Point(ny, nx), parent)));
-      }
-    }
-  }
-  // void buildCandidates() {
-  //   cerr << "msg:build candidates" << endl;
-  //   candidates.clear();
-  //   vector<int> used(NC, 0);
-
-  //   for (int y=0; y < S-1; y++) {
-  //     for (int x=0; x < S-1; x++) {
-  //       int d = 0;
-  //       for (int i=0; i < 4; i++) {
-  //         d += used[nearestCity[y+ey[i]][x+ex[i]]] == 0;
-  //         used[nearestCity[y+ey[i]][x+ex[i]]]++;
-  //       }
-  //       for (int i=0; i < 4; i++) used[nearestCity[y+ey[i]][x+ex[i]]]--;
-  //       if (d >= 3) candidates.push_back(Point(y, x));
-  //     }
-  //   }
-  // }
   double solve(const vector<int> &numJunctions) {
     double res = 0;
     vector<Point> junctions;
@@ -602,13 +537,10 @@ class RoadsAndJunctions {
     }
     junctionCost = _junctionCost;
     failureProbability = _failureProbability;
-    cerr << "S:" << S << "\tNC:" << NC << "\tFP:" << failureProbability << endl;
+    cerr << "S:" << S << "\tNC:" << NC << "\tFP:" << failureProbability << "\tJC:" << junctionCost << endl;
     prepareBaseScore();
     prepareProbability();
     buildInitialMST();
-    // buildDelaunay();
-    // buildRegions();
-    // buildCandidates();
     anneal();
     junctions.clear();
     vector<int> res;
