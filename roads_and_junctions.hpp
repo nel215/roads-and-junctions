@@ -52,8 +52,8 @@ class XorShift {
 };
 XorShift rng(215);
 
-const int dy[4] = {0, 1, 0, -1};
-const int dx[4] = {1, 0, -1, 0};
+const int dy[8] = {0, 1, 0, -1, -1, -1, 1, 1};
+const int dx[8] = {1, 0, -1, 0, -1, 1, -1, 1};
 const int ey[4] = {0, 0, 1, 1};
 const int ex[4] = {0, 1, 0, 1};
 
@@ -264,6 +264,11 @@ class RoadsAndJunctions {
     return mypow(ps[i].y-y) + mypow(ps[j].y-y) + mypow(ps[k].y-y) +
            mypow(ps[i].x-x) + mypow(ps[j].x-x) + mypow(ps[k].x-x);
   }
+  double calcSteinerCostDouble(int i, int j, int k, int y, int x, const vector<Point> &ps) {
+    return sqrt(mypow(ps[i].y-y) + mypow(ps[i].x-x)) +
+           sqrt(mypow(ps[j].y-y) + mypow(ps[j].x-x)) +
+           sqrt(mypow(ps[k].y-y) + mypow(ps[k].x-x));
+  }
   void prepareBaseScore() {
 #ifdef LOCAL
     double res = 0;
@@ -291,252 +296,425 @@ class RoadsAndJunctions {
 #endif
   }
 
-  int calcSteinerCost2(int a, int b, int c, int d, int y1, int x1, int y2, int x2, const vector<Point> &ps) {
-    int ayy = ps[a].y - y1, axx = ps[a].x - x1;
-    int byy = ps[b].y - y1, bxx = ps[b].x - x1;
-    int cyy = ps[c].y - y2, cxx = ps[c].x - x2;
-    int dyy = ps[d].y - y2, dxx = ps[d].x - x2;
-    int yy = y1 - y2, xx = x1 - x2;
-    return mypow(ayy) + mypow(axx) +
-           mypow(byy) + mypow(bxx) +
-           mypow(cyy) + mypow(cxx) +
-           mypow(dyy) + mypow(dxx) +
-           mypow(yy) + mypow(xx);
+  double calcSteinerCost2Double(int a, int b, int c, int d, int y1, int x1, int y2, int x2, const vector<Point> &ps) {
+    double ayy = ps[a].y - y1, axx = ps[a].x - x1;
+    double byy = ps[b].y - y1, bxx = ps[b].x - x1;
+    double cyy = ps[c].y - y2, cxx = ps[c].x - x2;
+    double dyy = ps[d].y - y2, dxx = ps[d].x - x2;
+    double yy = y1 - y2, xx = x1 - x2;
+    return sqrt(mypow(ayy) + mypow(axx)) +
+           sqrt(mypow(byy) + mypow(bxx)) +
+           sqrt(mypow(cyy) + mypow(cxx)) +
+           sqrt(mypow(dyy) + mypow(dxx)) +
+           sqrt(mypow(yy) + mypow(xx));
   }
-  void buildInitialMST() {
-    vector<Point> ps = cities;
-    auto candOccupied = occupied;
-    while (1) {
-      const int n = ps.size();
-      priority_queue<Node> que;
-      vector<int> used(n, 0);
-      vector<vector<pair<int, int>>> link(n, vector<pair<int, int>>());
-      vector<Edge> edge;
-      que.push(Node(0, -1, 0));
-      while (!que.empty()) {
-        auto cn = que.top();
-        que.pop();
-        int cy = ps[cn.idx].y;
-        int cx = ps[cn.idx].x;
-        if (used[cn.idx]) continue;
-        used[cn.idx] = 1;
-        if (cn.prev != -1) {
-          edge.push_back(Edge(cn.prev, cn.idx, cn.cost));
-          link[cn.prev].push_back(make_pair(cn.idx, cn.cost));
-          link[cn.idx].push_back(make_pair(cn.prev, cn.cost));
-        }
-        for (int i=0; i < n; i++) {
-          if (used[i]) continue;
-          int yy = cy-ps[i].y;
-          int xx = cx-ps[i].x;
-          int ncost = yy*yy+xx*xx;
-          que.push(Node(i, cn.idx, ncost));
-        }
-      }
-      // find pair
-      auto bestPair = make_pair(make_pair(0.0, 0), make_pair(Point(), Point()));
-      for (int i=0; i < edge.size(); i++) {
-        auto ei = edge[i];
-        P a(ps[ei.f].x, ps[ei.f].y);
-        P b(ps[ei.t].x, ps[ei.t].y);
-        for (int j=i+1; j < edge.size(); j++) {
-          auto ej = edge[j];
-          if (ej.f == ei.f || ej.f == ei.t) continue;
-          if (ej.t == ei.f || ej.t == ei.t) continue;
-          double oldCost = sqrt(ei.cost + ej.cost);
-          if (oldCost < 30) continue;
-          P c(ps[ej.f].x, ps[ej.f].y);
-          P d(ps[ej.t].x, ps[ej.t].y);
-          // a-b and c-d
-          P X = (a + b) * 0.5;
-          P Y = (c + d) * 0.5;
-          P Z1 = 0.7 * X + 0.3 * Y;
-          P Z2 = 0.3 * X + 0.7 * Y;
-          int y1 = Z1.imag(), x1 = Z1.real();
-          int y2 = Z2.imag(), x2 = Z2.real();
-          int cost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
-          if (sqrt(cost) >= oldCost) continue;
-          while (1) {
-            bool updated = false;
-            int bestDir = 0;
-            int bestCost = 1<<30;
-            for (int i=0; i < 4; i++) {
-              int y = y1+dy[i], x = x1+dx[i];
-              if (!valid(y, x)) continue;
-              if (candOccupied[y][x]) continue;
-              int newCost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
-              if (newCost < bestCost) {
-                bestDir = i;
-                bestCost = newCost;
-              }
-            }
-            if (bestCost < cost) {
-              cost = bestCost;
-              y1 += dy[bestDir];
-              x1 += dx[bestDir];
-              updated = true;
-            }
-            bestDir = 0;
-            bestCost = 1<<30;
-            for (int i=0; i < 4; i++) {
-              int y = y2+dy[i], x = x2+dx[i];
-              if (!valid(y, x)) continue;
-              if (candOccupied[y][x]) continue;
-              int newCost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
-              if (newCost < bestCost) {
-                bestDir = i;
-                bestCost = newCost;
-              }
-            }
-            if (bestCost < cost) {
-              cost = bestCost;
-              y2 += dy[bestDir];
-              x2 += dx[bestDir];
-              updated = true;
-            }
-            if (!updated) break;
-          }
-          if (candOccupied[y1][x1] || candOccupied[y2][x2]) continue;
-          cost = calcSteinerCost2(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
-          auto maxDiff = make_pair(0.0, 0);
-          for (int cnt=1; cnt < multipleCost.size(); cnt++) {
-            double sucP = multipleCost[cnt].second;
-            sucP = sucP*sucP;
-            if (sucP < 0.7) continue;
-            double d = sucP * (oldCost - (sqrt(cost) + 2*multipleCost[cnt].first + 4*(cnt-1)));
-            if (maxDiff.first < d) maxDiff = make_pair(d, cnt);
-          }
-          if (maxDiff.first > bestPair.first.first) {
-            bestPair = make_pair(maxDiff, make_pair(Point(y1, x1), Point(y2, x2)));
-          }
-        }
-      }
-      if (bestPair.first.first > 30.0) {
-        cerr << "improve by pair:" << bestPair.first.first << " " << bestPair.first.second << endl;
-        auto p1 = bestPair.second.first;
-        auto p2 = bestPair.second.second;
-        if (candOccupied[p1.y][p1.x] == 0 && candOccupied[p2.y][p2.x] == 0) {
-          candOccupied[p1.y][p1.x] = 1;
-          candOccupied[p2.y][p2.x] = 1;
-          candidates.push_back(Cluster(p1, bestPair.first.second));
-          candidates.push_back(Cluster(p2, bestPair.first.second));
-          ps.push_back(p1);
-          ps.push_back(p2);
-        }
-        continue;
-      }
-
-      // find point
-      const double thres = 2.0943951023931953;
-
-      auto bestPoint = make_pair(make_pair(0.0, 0), Point(-1, -1));
-      for (int idx=0; idx < edge.size(); idx++) {
-        auto e = edge[idx];
-        for (auto tmp : link[e.f]) {
-          int v = tmp.first;
-          if (v == e.t) continue;
-          double oldCost = sqrt(e.cost + tmp.second);
-          // v -> f -> t
-          P a(ps[v].x, ps[v].y);
-          P b(ps[e.f].x, ps[e.f].y);
-          P c(ps[e.t].x, ps[e.t].y);
-          double d = 0;
-          d = max(d, abs(arg((c-b)/(a-b))));
-          d = max(d, abs(arg((b-a)/(c-a))));
-          d = max(d, abs(arg((a-c)/(b-c))));
-          if (d >= thres) continue;
-          P p = a + b + c;
-          int y = p.imag() / 3;
-          int x = p.real() / 3;
-          int cost = calcSteinerCost(v, e.f, e.t, y, x, ps);
-          while (1) {
-            int bestDir = 0;
-            int bestCost = 1<<30;
-            for (int i=0; i < 4; i++) {
-              if (!valid(y+dy[i], x+dx[i])) continue;
-              if (candOccupied[y+dy[i]][x+dx[i]]) continue;
-              int newCost = calcSteinerCost(v, e.f, e.t, y+dy[i], x+dx[i], ps);
-              if (newCost < bestCost) {
-                bestDir = i;
-                bestCost = newCost;
-              }
-            }
-            if (bestCost < cost) {
-              cost = bestCost;
-              y += dy[bestDir];
-              x += dx[bestDir];
-            } else {
-              break;
-            }
-          }
-          if (candOccupied[y][x]) continue;
-          auto maxDiff = make_pair(0.0, 0);
-          for (int cnt=1; cnt < multipleCost.size(); cnt++) {
-            double sucP = multipleCost[cnt].second;
-            if (sucP < 0.70) continue;
-            double d = sucP * (oldCost - (sqrt(cost) + multipleCost[cnt].first + 2*(cnt-1)));
-            // double d = (oldCost - (sqrt(cost) + multipleCost[cnt].first));  // + 2*(cnt-1)));
-            // double d = (oldCost - (sqrt(cost) + multipleCost[cnt].first + 2*(cnt-1)));
-            if (maxDiff.first < d) maxDiff = make_pair(d, cnt);
-          }
-          if (maxDiff.first > bestPoint.first.first) {
-            bestPoint = make_pair(maxDiff, Point(y, x));
-          }
-        }
-      }
-      if (bestPoint.first.first > 0.0) {
-        cerr << "improve by point:" << bestPoint.first.first << " " << bestPoint.first.second << " " << bestPoint.second.x << " " << bestPoint.second.y << endl;
-        auto p = bestPoint.second;
-        if (candOccupied[p.y][p.x] == 0) {
-          candOccupied[p.y][p.x] = 1;
-          candidates.push_back(Cluster(p, bestPoint.first.second));
-          ps.push_back(p);
-        }
-        continue;
-      }
-      break;
-    }
-  }
-  double solve(const vector<int> &numJunctions) {
+  double solveForBS(vector<Point> ps, vector<set<int>> &link, vector<Edge> &edge) {
+    const int n = ps.size();
+    priority_queue<Node> que;
+    que.push(Node(0, -1, 0));
+    vector<uint8_t> used(n, 0);
+    link.assign(n, set<int>());
+    edge.clear();
     double res = 0;
-    vector<Point> junctions;
-    for (int i=0; i < numJunctions.size(); i++) {
-      if (numJunctions[i] == 0) continue;
-      for (int j=0; j < min(1, numJunctions[i]); j++) {
-        // if (rng.uniform() < failureProbability) continue;
-        int c = candidates[i].cnt;
-        // cerr << c << endl;
-        // res += multipleCost[c].first + (c-1);
-        res += multipleCost[c].first;
-        int y = candidates[i].p.y + ey[j];
-        int x = candidates[i].p.x + ex[j];
-        junctions.push_back(Point(y, x));
+    while (!que.empty()) {
+      auto cn = que.top();
+      que.pop();
+      auto p = ps[cn.idx];
+      if (used[cn.idx]) continue;
+      used[cn.idx] = 1;
+      res += sqrt(cn.cost);
+      if (cn.prev != -1) {
+        edge.push_back(Edge(cn.prev, cn.idx, cn.cost));
+        link[cn.prev].insert(cn.idx);
+        link[cn.idx].insert(cn.prev);
+      }
+      for (int i=0; i < n; i++) {
+        if (used[i]) continue;
+        int yy = p.y-ps[i].y;
+        int xx = p.x-ps[i].x;
+        int ncost = yy*yy+xx*xx;
+        que.push(Node(i, cn.idx, ncost));
       }
     }
-    auto points = cities;
-    points.insert(points.end(), junctions.begin(), junctions.end());
-    priority_queue<pair<int, int>> que;
-    que.push(make_pair(0, 0));
-    vector<int> used(points.size(), 0);
-    while (!que.empty()) {
-      auto top = que.top();
-      auto idx = top.second;
-      que.pop();
-      if (used[idx]) continue;
-      used[idx] = 1;
-      res += sqrt(-top.first);
-      for (int i=0; i < points.size(); i++) {
-        if (used[i]) continue;
-        int cy = points[idx].y - points[i].y;
-        int cx = points[idx].x - points[i].x;
-        int d = cy*cy+cx*cx;
-        que.push(make_pair(-d, i));
+    while (1) {
+      bool deleted = false;
+      for (int i=NC; i < n; i++) {
+        if (link[i].size() == 1) {
+          auto it = link[i].begin();
+          int a = *it;
+          double ai = sqrt(dist2(ps[a], ps[i]));
+          link[a].erase(i);
+          link[i].clear();
+          res -= ai;
+          deleted = true;
+        }
+      }
+      for (int i=NC; i < n; i++) {
+        if (link[i].size() == 2) {
+          auto it = link[i].begin();
+          int a = *it;
+          it++;
+          int b = *it;
+          double ab = sqrt(dist2(ps[a], ps[b]));
+          double ai = sqrt(dist2(ps[a], ps[i]));
+          double bi = sqrt(dist2(ps[b], ps[i]));
+          link[a].erase(i);
+          link[b].erase(i);
+          link[a].insert(b);
+          link[b].insert(a);
+          link[i].clear();
+          res += ab - (ai+bi);
+          deleted = true;
+        }
+      }
+      for (int i=NC; i < n; i++) {
+        if (link[i].size() == 0) continue;
+        if (link[i].size() == 3) {
+          auto it = link[i].begin();
+          int a = *it;
+          it++;
+          int b = *it;
+          it++;
+          int c = *it;
+          double ab = sqrt(dist2(ps[a], ps[b]));
+          double bc = sqrt(dist2(ps[b], ps[c]));
+          double ca = sqrt(dist2(ps[c], ps[a]));
+          double ai = sqrt(dist2(ps[a], ps[i]));
+          double bi = sqrt(dist2(ps[b], ps[i]));
+          double ci = sqrt(dist2(ps[c], ps[i]));
+          double maxEdge = max(ab, max(bc, ca));
+          double baseCost = ab + bc + ca - maxEdge;
+          double bestCost = baseCost;
+          int bestCnt = 0;
+          for (int cnt=1; cnt < 10; cnt++) {
+            double sucP = multipleCost[cnt].second;
+            double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
+            if (bestCost > cost) {
+              bestCost = cost;
+              bestCnt = cnt;
+            }
+          }
+          if (bestCnt == 0) {
+            link[a].erase(i);
+            link[b].erase(i);
+            link[c].erase(i);
+            link[i].clear();
+            if (maxEdge != ab) {
+              link[a].insert(b);
+              link[b].insert(a);
+            }
+            if (maxEdge != bc) {
+              link[b].insert(c);
+              link[c].insert(b);
+            }
+            if (maxEdge != ca) {
+              link[c].insert(a);
+              link[a].insert(c);
+            }
+            res += baseCost - (ai+bi+ci);
+            deleted = true;
+          }
+        }
+      }
+      if (!deleted) break;
+    }
+    for (int i=NC; i < n; i++) {
+      if (link[i].size() == 0) continue;
+      if (link[i].size() == 3) {
+        auto it = link[i].begin();
+        int a = *it;
+        it++;
+        int b = *it;
+        it++;
+        int c = *it;
+        double ab = sqrt(dist2(ps[a], ps[b]));
+        double bc = sqrt(dist2(ps[b], ps[c]));
+        double ca = sqrt(dist2(ps[c], ps[a]));
+        double ai = sqrt(dist2(ps[a], ps[i]));
+        double bi = sqrt(dist2(ps[b], ps[i]));
+        double ci = sqrt(dist2(ps[c], ps[i]));
+        double baseCost = ab + bc + ca - max(ab, max(bc, ca));
+        double bestCost = baseCost;
+        int bestCnt = 0;
+        for (int cnt=1; cnt < 10; cnt++) {
+          double sucP = multipleCost[cnt].second;
+          double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
+          if (bestCost > cost) {
+            bestCost = cost;
+            bestCnt = cnt;
+          }
+        }
+        res += bestCost - (ai+bi+ci);
+      } else {
+        res += junctionCost;
       }
     }
     return res;
   }
+  struct BeamNode {
+    vector<Point> ps;
+    double cost;
+    BeamNode() {
+      cost = 1e10;
+    }
+    BeamNode(vector<Point> _ps, double _cost) {
+      ps = _ps;
+      cost = _cost;
+    }
+    bool operator<(const BeamNode &n)const {
+      return cost < n.cost;
+    }
+  };
+  inline int dist2(const Point &a, const Point &b) {
+    return mypow(a.y-b.y) + mypow(a.x-b.x);
+  }
+  void buildInitialMST() {
+    vector<vector<uint32_t> > hashSeed(S, vector<uint32_t>(S));
+    for (int i=0; i < S; i++) {
+      for (int j=0; j < S; j++) {
+        hashSeed[i][j] = rng.rand();
+      }
+    }
+    const int beamSize = 5 * 1001 / S;
+    vector<BeamNode> curQue;
+    vector<set<int>> link;
+    vector<Edge> edge;
+    vector<set<int>> tmpLink;
+    vector<Edge> tmpEdge;
+    curQue.push_back(BeamNode(cities, solveForBS(cities, tmpLink, tmpEdge)));
+    auto best = curQue[0];
+    for (int q=0; q < 25; q++) {
+      vector<BeamNode> nextQue;
+      set<uint32_t> hashSet;
+      for (int bi=0; bi < curQue.size(); bi++) {
+        // construct
+        auto bn = curQue[bi];
+        // cerr << q << " " << bn.cost << endl;
+        vector<Point> ps = bn.ps;
+        auto candOccupied = occupied;
+        uint32_t hash = 0;
+        for (int i=NC; i < ps.size(); i++) {
+          candOccupied[ps[i].y][ps[i].x] = 1;
+          hash ^= hashSeed[ps[i].y][ps[i].x];
+        }
+        // solve current graph
+        double currentScore = solveForBS(ps, link, edge);
+        // find pair
+        // auto bestPair = make_pair(make_pair(0.0, 0), make_pair(Point(), Point()));
+        // for (int i=0; i < edge.size(); i++) {
+        //   auto ei = edge[i];
+        //   P a(ps[ei.f].x, ps[ei.f].y);
+        //   P b(ps[ei.t].x, ps[ei.t].y);
+        //   for (int j=i+1; j < edge.size(); j++) {
+        //     auto ej = edge[j];
+        //     if (ej.f == ei.f || ej.f == ei.t) continue;
+        //     if (ej.t == ei.f || ej.t == ei.t) continue;
+        //     double oldCost = sqrt(ei.cost) + sqrt(ej.cost);
+        //     P c(ps[ej.f].x, ps[ej.f].y);
+        //     P d(ps[ej.t].x, ps[ej.t].y);
+        //     // a-b and c-d
+        //     P X = (a + b) * 0.5;
+        //     P Y = (c + d) * 0.5;
+        //     P Z1 = 0.9 * X + 0.1 * Y;
+        //     P Z2 = 0.1 * X + 0.9 * Y;
+        //     int y1 = Z1.imag(), x1 = Z1.real();
+        //     int y2 = Z2.imag(), x2 = Z2.real();
+        //     double cost = calcSteinerCost2Double(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+        //     while (1) {
+        //       bool updated = false;
+        //       int bestDir = 0;
+        //       double bestCost = 1<<30;
+        //       for (int i=0; i < 8; i++) {
+        //         int y = y1+dy[i], x = x1+dx[i];
+        //         if (!valid(y, x)) continue;
+        //         if (candOccupied[y][x]) continue;
+        //         double newCost = calcSteinerCost2Double(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+        //         if (newCost < bestCost) {
+        //           bestDir = i;
+        //           bestCost = newCost;
+        //         }
+        //       }
+        //       if (bestCost < cost) {
+        //         cost = bestCost;
+        //         y1 += dy[bestDir];
+        //         x1 += dx[bestDir];
+        //         updated = true;
+        //       }
+        //       bestDir = 0;
+        //       bestCost = 1<<30;
+        //       for (int i=0; i < 8; i++) {
+        //         int y = y2+dy[i], x = x2+dx[i];
+        //         if (!valid(y, x)) continue;
+        //         if (candOccupied[y][x]) continue;
+        //         double newCost = calcSteinerCost2Double(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
+        //         if (newCost < bestCost) {
+        //           bestDir = i;
+        //           bestCost = newCost;
+        //         }
+        //       }
+        //       if (bestCost < cost) {
+        //         cost = bestCost;
+        //         y2 += dy[bestDir];
+        //         x2 += dx[bestDir];
+        //         updated = true;
+        //       }
+        //       if (!updated) break;
+        //     }
+        //     if (cost > oldCost) continue;
+        //     // cerr << cost << " " << abs(a-Z1)+abs(b-Z1)+abs(c-Z2)+abs(d-Z2)+abs(Z1-Z2) << endl;
+        //     if (candOccupied[y1][x1] || candOccupied[y2][x2]) continue;
+        //     vector<Point> jcs = ps;
+        //     jcs.push_back(Point(y1, x1));
+        //     jcs.push_back(Point(y2, x2));
+        //     double score = solveForBS(jcs);
+        //     if (score > currentScore) continue;
+        //     nextQue.push_back(BeamNode(jcs, score));
+        //   }
+        // }
+
+        // find point
+        const double thres = 2.0943951023931953;
+
+        auto bestPoint = make_pair(make_pair(0.0, 0), Point(-1, -1));
+        for (int idx=0; idx < edge.size(); idx++) {
+          auto e = edge[idx];
+          for (auto v : link[e.f]) {
+            // int v = tmp.first;
+            if (v == e.t) continue;
+            double oldCost = sqrt(e.cost) + sqrt(dist2(ps[v], ps[e.f]));
+            // v -> f -> t
+            P a(ps[v].x, ps[v].y);
+            P b(ps[e.f].x, ps[e.f].y);
+            P c(ps[e.t].x, ps[e.t].y);
+            double d = 0;
+            d = max(d, abs(arg((c-b)/(a-b))));
+            d = max(d, abs(arg((b-a)/(c-a))));
+            d = max(d, abs(arg((a-c)/(b-c))));
+            if (d >= thres) continue;
+            P p = a + b + c;
+            int y = p.imag() / 3;
+            int x = p.real() / 3;
+            double cost = calcSteinerCostDouble(v, e.f, e.t, y, x, ps);
+            while (1) {
+              int bestDir = 0;
+              double bestCost = 1<<30;
+              for (int i=0; i < 8; i++) {
+                if (!valid(y+dy[i], x+dx[i])) continue;
+                if (candOccupied[y+dy[i]][x+dx[i]]) continue;
+                double newCost = calcSteinerCostDouble(v, e.f, e.t, y+dy[i], x+dx[i], ps);
+                if (newCost < bestCost) {
+                  bestDir = i;
+                  bestCost = newCost;
+                }
+              }
+              if (bestCost < cost) {
+                cost = bestCost;
+                y += dy[bestDir];
+                x += dx[bestDir];
+              } else {
+                break;
+              }
+            }
+            if (oldCost < cost) continue;
+            // cerr << oldCost << " " << cost << endl;
+            if (candOccupied[y][x]) continue;
+            vector<Point> jcs = ps;
+            jcs.push_back(Point(y, x));
+
+            double score = solveForBS(jcs, tmpLink, tmpEdge);
+            // if (score > currentScore) continue;
+            uint32_t nextHash = hash ^ hashSeed[y][x];
+            if (hashSet.count(nextHash)) continue;
+            hashSet.insert(nextHash);
+            nextQue.push_back(BeamNode(jcs, score));
+          }
+        }
+      }
+      if (nextQue.empty()) break;
+      sort(nextQue.begin(), nextQue.end());
+      if (nextQue.size() > beamSize) nextQue.resize(beamSize);
+      curQue = move(nextQue);
+      best = min(best, curQue[0]);
+    }
+    cerr << best.cost << endl;
+    for (int i=NC; i < best.ps.size(); i++) {
+      // cerr << best.ps[i].x << " " << best.ps[i].y << endl;
+      candidates.push_back(Cluster(best.ps[i], 1));
+    }
+  }
+  double solve(const vector<int> &numJunctions) {
+    vector<Point> junctions;
+    for (int i=0; i < numJunctions.size(); i++) {
+      auto a = candidates[i].p;
+      if (!valid(a.y, a.x)) return 1e10;
+      if (occupied[a.y][a.x]) return 1e10;
+      if (numJunctions[i] > 0) junctions.push_back(a);
+      for (int j=i+1; j < numJunctions.size(); j++) {
+        auto b = candidates[j].p;
+        if (a.y == b.y && a.x == b.x) return 1e10;
+      }
+    }
+    auto ps = cities;
+    ps.insert(ps.end(), junctions.begin(), junctions.end());
+    vector<set<int>> link;
+    vector<Edge> edge;
+    double res = solveForBS(ps, link, edge);
+    // for (int i=NC; i < ps.size(); i++) {
+    //   cerr << link[i].size() << endl;
+    // }
+    // const int n = ps.size();
+    // priority_queue<Node> que;
+    // que.push(Node(0, -1, 0));
+    // vector<int> used(n, 0);
+    // vector<vector<int>> link(n, vector<int>());
+    // while (!que.empty()) {
+    //   auto top = que.top();
+    //   auto idx = top.idx;
+    //   que.pop();
+    //   if (used[idx]) continue;
+    //   used[idx] = 1;
+    //   res += sqrt(top.cost);
+    //   if (top.prev != -1) {
+    //     link[top.prev].push_back(idx);
+    //     link[idx].push_back(top.prev);
+    //   }
+    //   for (int i=0; i < ps.size(); i++) {
+    //     if (used[i]) continue;
+    //     int d = dist2(ps[idx], ps[i]);
+    //     que.push(Node(i, d, idx));
+    //   }
+    // }
+    // for (int i=NC; i < n; i++) {
+    //   if (link[i].size() == 3) {
+    //     int a = link[i][0];
+    //     int b = link[i][1];
+    //     int c = link[i][2];
+    //     double ab = sqrt(dist2(ps[a], ps[b]));
+    //     double bc = sqrt(dist2(ps[b], ps[c]));
+    //     double ca = sqrt(dist2(ps[c], ps[a]));
+    //     double ai = sqrt(dist2(ps[a], ps[i]));
+    //     double bi = sqrt(dist2(ps[b], ps[i]));
+    //     double ci = sqrt(dist2(ps[c], ps[i]));
+    //     double baseCost = ab + bc + ca - max(ab, max(bc, ca));
+    //     double bestCost = baseCost;
+    //     int bestCnt = 0;
+    //     for (int cnt=1; cnt < 10; cnt++) {
+    //       double sucP = multipleCost[cnt].second;
+    //       double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
+    //       if (bestCost > cost) {
+    //         bestCost = cost;
+    //         bestCnt = cnt;
+    //       }
+    //     }
+    //     res += bestCost - (ai+bi+ci);
+    //   } else {
+    //     res += junctionCost;
+    //   }
+    // }
+    return res;
+  }
   bool movable(const double score, const double currentScore, const double temperatue) {
-    double p = exp(min(2.0, currentScore - score)) - temperatue;
+    double p = exp(min(2.0, (currentScore - score))) + temperatue;
     return p > rng.uniform();
   }
   void anneal() {
@@ -546,62 +724,63 @@ class RoadsAndJunctions {
     };
     cerr << "msg:start annealing" << endl;
     if (candidates.empty()) return;
-    vector<int> numJunctions(candidates.size(), 0);
+    vector<int> numJunctions(candidates.size(), 1);
     bestNumJunctions = numJunctions;
-    bestCandidates = bestCandidates;
-    int sumNumber = 0;
-    double bestScore = 1e10;
+    bestCandidates = candidates;
+    int sumNumber = candidates.size();
+    double bestScore = solve(numJunctions);
     double currentScore = 1e10;
-    const int trial = 1;
+    int annealCount = 0;
     while (1) {
       double elapsed = getTime() - startTime;
       if (elapsed >= timeLimit) break;
-      double temperatue = 1. - elapsed / timeLimit;  // 1->0
+      annealCount++;
+      // double temperatue = 1. - elapsed / timeLimit;  // 1->0
+      double temperatue = 0.6;
       int idx = rng.rand() % candidates.size();
       int act = actions[rng.rand() % 2];
       if (act == 0) {
-        int inst = 1 - 2*(rng.rand() & 1);
-        if (sumNumber == 0) inst = 1;
-        if (sumNumber >= 2*NC) inst = -1;
-        if (numJunctions[idx] == 0 && inst == -1) continue;
-        if (numJunctions[idx] == 1 && inst == +1) continue;
-        numJunctions[idx] += inst;
-        sumNumber += inst;
-        double score = 0;
-        for (int i=0; i < trial; i++) {
-          score += solve(numJunctions);;
-        }
-        score /= trial;
+        numJunctions[idx] = 1 - numJunctions[idx];
+        // int inst = 1 - 2*(rng.rand() & 1);
+        // if (sumNumber == 0) inst = 1;
+        // if (sumNumber >= 2*NC) inst = -1;
+        // if (numJunctions[idx] == 0 && inst == -1) continue;
+        // if (numJunctions[idx] == 1 && inst == +1) continue;
+        // numJunctions[idx] += inst;
+        // sumNumber += inst;
+        double score = solve(numJunctions);
         if (movable(score, currentScore, temperatue)) {
           currentScore = score;
         } else {
-          numJunctions[idx] -= inst;
-          sumNumber -= inst;
+          numJunctions[idx] = 1 - numJunctions[idx];
+          // numJunctions[idx] -= inst;
+          // sumNumber -= inst;
         }
       }
       if (act == 1) {
         int xy = rng.rand() & 1;
-        int inst = 1 - 2*(rng.rand() & 1);
+        int inst = 1 - rng.rand() % 3;
         if (xy) {
           candidates[idx].p.x += inst;
         } else {
           candidates[idx].p.y += inst;
         }
         double score = 1e10;
-        if (numJunctions[idx] == 0) {
-          score = currentScore;
-        } else {
-          if (valid(candidates[idx].p.y, candidates[idx].p.x)) {
-            score = 0;
-            for (int i=0; i < trial; i++) {
-              score += solve(numJunctions);
-            }
-            score /= trial;
-          }
+        score = solve(numJunctions);
+        if (score < bestScore) {
+          // for (int i=0; i < numJunctions.size(); i++) {
+          //   cerr << numJunctions[i] << " ";
+          // }
+          // cerr << endl;
+          bestScore = score;
+          bestNumJunctions = numJunctions;
+          bestCandidates = candidates;
+          cerr << bestScore << endl;
         }
         if (movable(score, currentScore, temperatue)) {
           currentScore = score;
         } else {
+          if (currentScore > score) cerr << "hoge" << endl;
           if (xy) {
             candidates[idx].p.x -= inst;
           } else {
@@ -609,17 +788,8 @@ class RoadsAndJunctions {
           }
         }
       }
-      if (currentScore < bestScore) {
-        // for (int i=0; i < numJunctions.size(); i++) {
-        //   cerr << numJunctions[i] << " ";
-        // }
-        // cerr << endl;
-        bestScore = currentScore;
-        bestNumJunctions = numJunctions;
-        bestCandidates = candidates;
-        cerr << bestScore << endl;
-      }
     }
+    cerr << "anneal:" << annealCount << endl;
   }
   vector<pair<double, double>> multipleCost;
   void prepareProbability() {
@@ -637,6 +807,295 @@ class RoadsAndJunctions {
       multipleCost[i] = make_pair(i*junctionCost, 1.-dp[i][0]);
     }
   }
+  struct Cand {
+    double diff;
+    int count;
+    int a, b, c;
+    Point p;
+    Cand() {
+      diff = -1e9;
+    }
+    Cand(double _diff, int _count, int _a, int _b, int _c, Point _p) {
+      diff = _diff;
+      count = _count;
+      a = _a;
+      b = _b;
+      c = _c;
+      p = _p;
+    }
+  };
+  double evaluate(const set<int> &index, const vector<Point> &ps, const vector<int> jcCount) {
+    double sum = 0;
+    priority_queue<Node> que;
+    vector<uint8_t> used(3*NC, 0);
+    que.push(Node(0, -1, 0));
+    while (!que.empty()) {
+      auto cn = que.top();
+      que.pop();
+      if (used[cn.idx]) continue;
+      if (cn.idx >= NC) sum += junctionCost * jcCount[cn.idx];
+      sum += sqrt(cn.cost);
+      used[cn.idx] = 1;
+      for (int i : index) {
+        if (used[i]) continue;
+        int d = mypow(ps[i].y-ps[cn.idx].y) + mypow(ps[i].x-ps[cn.idx].x);
+        que.push(Node(i, cn.idx, d));
+      }
+    }
+    return sum;
+  }
+  void setBestClusters(const set<int> &index, const vector<Point> &ps, const vector<int> &jcCount, vector<Cluster> &bestCluster) {
+    bestCluster.clear();
+    for (int i=NC; i < 3*NC; i++) {
+      if (index.count(i) == 0) continue;
+      bestCluster.push_back(Cluster(ps[i], jcCount[i]));
+    }
+  }
+  void fuga() {
+    double bestAllScore = 1e10;
+    vector<Cluster> bestCluster;
+    vector<int> jcCount(3*NC, 0);
+    vector<set<int>> edges;
+    vector<Point> ps(3*NC);
+    set<int> index;
+    set<int> candOccupied;
+    for (int i=0; i < NC; i++) {
+      ps[i] = cities[i];
+      index.insert(i);
+      candOccupied.insert(ps[i].y*S+ps[i].x);
+    }
+    while (1) {
+      double elapsed = getTime() - startTime;
+      if (elapsed >= timeLimit) break;
+      double temperatue = 1. - elapsed / timeLimit;  // 1->0
+      // reset
+      // if (rng.uniform() < 0.01) {
+      //   index = set<int>();
+      //   candOccupied = set<int>();
+      //   for (int i=0; i < NC; i++) {
+      //     index.insert(i);
+      //     candOccupied.insert(ps[i].y*S+ps[i].x);
+      //   }
+      // }
+      // rebuild
+      double currentScore = 0;
+      // {
+      //   // cerr << "msg:rebuild" << "\tsize:" << index.size();
+      //   double sum = 0;
+      //   edges.assign(3*NC, set<int>());
+      //   priority_queue<Node> que;
+      //   vector<uint8_t> used(3*NC, 0);
+      //   que.push(Node(0, -1, 0));
+      //   while (!que.empty()) {
+      //     auto cn = que.top();
+      //     que.pop();
+      //     if (used[cn.idx]) continue;
+      //     if (cn.idx >= NC) sum += junctionCost * jcCount[cn.idx];
+      //     sum += sqrt(cn.cost);
+      //     used[cn.idx] = 1;
+      //     if (cn.prev != -1) {
+      //       edges[cn.prev].insert(cn.idx);
+      //       edges[cn.idx].insert(cn.prev);
+      //     }
+      //     for (int i : index) {
+      //       if (used[i]) continue;
+      //       int d = mypow(ps[i].y-ps[cn.idx].y) + mypow(ps[i].x-ps[cn.idx].x);
+      //       que.push(Node(i, cn.idx, d));
+      //     }
+      //   }
+      //   currentScore = sum;
+      //   if (currentScore < bestAllScore) {
+      //     bestAllScore = currentScore;
+      //     setBestClusters(index, ps, jcCount, bestCluster);
+      //   }
+      //   // cerr << "\ttmp_score:" << sum << endl;
+      // }
+      // add sp
+      if (rng.uniform() < 0.1) {
+        const double thres = 2.0943951023931953;
+        for (auto idx : index) {
+          Cand bestCand;
+          if (rng.uniform() < 0.5) continue;
+          for (auto v : edges[idx]) {
+            double vcost = sqrt(mypow(ps[idx].y-ps[v].y) + mypow(ps[idx].x-ps[v].x));
+            for (auto u : edges[v]) {
+              if (idx == u) continue;
+              double oldCost = vcost + sqrt(mypow(ps[v].y-ps[u].y) + mypow(ps[v].x-ps[u].x));
+              // a -> b -> c
+              P a(ps[idx].x, ps[idx].y);
+              P b(ps[v].x, ps[v].y);
+              P c(ps[u].x, ps[u].y);
+              double d = 0;
+              d = max(d, abs(arg((c-b)/(a-b))));
+              d = max(d, abs(arg((b-a)/(c-a))));
+              d = max(d, abs(arg((a-c)/(b-c))));
+              if (d >= thres) continue;
+              P p = (a + b + c) * (1./3);
+              int y = p.imag();
+              int x = p.real();
+              double cost = calcSteinerCostDouble(idx, v, u, y, x, ps);
+              while (1) {
+                int bestDir = 0;
+                double bestCost = 1e10;
+                for (int i=0; i < 4; i++) {
+                  int ny = y+dy[i], nx = x+dx[i];
+                  if (!valid(ny, nx)) continue;
+                  if (candOccupied.count(ny*S+nx)) continue;
+                  double newCost = calcSteinerCostDouble(idx, v, u, ny, nx, ps);
+                  if (newCost < bestCost) {
+                    bestDir = i;
+                    bestCost = newCost;
+                  }
+                }
+                if (bestCost >= cost) break;
+                cost = bestCost;
+                y += dy[bestDir];
+                x += dx[bestDir];
+              }
+              if (candOccupied.count(y*S+x)) continue;
+              for (int cnt=1; cnt < multipleCost.size(); cnt++) {
+                double sucP = multipleCost[cnt].second;
+                if (sucP < 0.80 && cnt*junctionCost < 5) continue;
+                // double d = sucP * (oldCost - (sqrt(cost) + multipleCost[cnt].first + (cnt-1)));
+                double d = sucP * (oldCost - (cost + cnt*junctionCost));
+                // double d = oldCost - costDouble;
+                if (bestCand.diff < d) {
+                  bestCand = Cand(
+                    d, cnt,
+                    idx, v, u,
+                    Point(y, x)
+                  );
+                }
+              }
+            }
+          }
+          if (bestCand.diff > -10) {
+            // cerr << bestCand.diff << " " << bestCand.a << " " << bestCand.b << " " << bestCand.c << endl;
+            for (int i=NC; i < 3*NC; i++) {
+              if (index.count(i)) continue;
+              auto p = bestCand.p;
+              index.insert(i);
+              jcCount[i] = bestCand.count;
+              candOccupied.insert(p.y*S+p.x);
+              ps[i] = p;
+              edges[bestCand.a].erase(bestCand.b);
+              edges[bestCand.b].erase(bestCand.a);
+              edges[bestCand.b].erase(bestCand.c);
+              edges[bestCand.c].erase(bestCand.b);
+              edges[bestCand.a].insert(i);
+              edges[bestCand.b].insert(i);
+              edges[bestCand.c].insert(i);
+              edges[i].insert(bestCand.a);
+              edges[i].insert(bestCand.b);
+              edges[i].insert(bestCand.c);
+              double score = evaluate(index, ps, jcCount);
+              if (score < bestAllScore) {
+                bestAllScore = score;
+                setBestClusters(index, ps, jcCount, bestCluster);
+              }
+              if (!movable(score, currentScore, temperatue)) {
+                index.erase(i);
+                jcCount[i] = 0;
+                candOccupied.erase(p.y*S+p.x);
+                edges[bestCand.a].insert(bestCand.b);
+                edges[bestCand.b].insert(bestCand.a);
+                edges[bestCand.b].insert(bestCand.c);
+                edges[bestCand.c].insert(bestCand.b);
+                edges[bestCand.a].erase(i);
+                edges[bestCand.b].erase(i);
+                edges[bestCand.c].erase(i);
+                edges[i].erase(bestCand.a);
+                edges[i].erase(bestCand.b);
+                edges[i].erase(bestCand.c);
+                score = currentScore;
+              } else {
+                currentScore = score;
+              }
+              break;
+            }
+          }
+        }
+      }
+      // delete
+      if (rng.uniform() < 0.1) {
+        for (int idx=NC; idx < 3*NC; idx++) {
+          if (index.count(idx) == 0) continue;
+          if (edges[idx].size() == 3) continue;
+          index.erase(idx);
+          double score = evaluate(index, ps, jcCount);
+          if (score < bestAllScore) {
+            bestAllScore = score;
+            setBestClusters(index, ps, jcCount, bestCluster);
+          }
+          if (movable(score, currentScore, temperatue)) {
+            for (auto v : edges[idx]) {
+              edges[v].erase(idx);
+            }
+            edges[idx] = set<int>();
+            currentScore = score;
+          } else {
+            index.insert(idx);
+          }
+        }
+      }
+      // adjust
+      {
+        for (int idx=NC; idx < 3*NC; idx++) {
+          if (index.count(idx) == 0) continue;
+          // if (rng.uniform() < 0.1) continue;
+          auto p = ps[idx];
+          int y = p.y;
+          int x = p.x;
+          candOccupied.erase(y*S+x);
+          // double cost = 0;
+          // for (auto v : edges[idx]) {
+          //   cost += sqrt(mypow(ps[v].y-y)) + sqrt(mypow(ps[v].x-x));
+          // }
+          // cost += 10;
+          // while (1) {
+          //   int bestDir = 0;
+          //   double bestCost = 1e10;
+          //   for (int i=0; i < 4; i++) {
+          //     int ny = y+dy[i], nx = x+dx[i];
+          //     if (!valid(ny, nx)) continue;
+          //     if (candOccupied.count(ny*S+nx)) continue;
+          //     double newCost = 0;
+          //     for (auto v : edges[idx]) {
+          //       newCost += sqrt(mypow(ps[v].y-ny)) + sqrt(mypow(ps[v].x-nx));
+          //     }
+          //     if (newCost < bestCost) {
+          //       bestDir = i;
+          //       bestCost = newCost;
+          //     }
+          //   }
+          //   if (bestCost >= cost) break;
+          //   cost = bestCost;
+          //   y += dy[bestDir];
+          //   x += dx[bestDir];
+          // }
+          ps[idx].y = y + (3 - rng.rand() % 7);
+          ps[idx].x = x + (3 - rng.rand() % 7);
+          double score = evaluate(index, ps, jcCount);
+          if (score < bestAllScore) {
+            bestAllScore = score;
+            setBestClusters(index, ps, jcCount, bestCluster);
+            cerr << bestAllScore << endl;
+          }
+          if (movable(score, currentScore, temperatue)) {
+            candOccupied.insert(y*S+x);
+            currentScore = score;
+          } else {
+            ps[idx] = p;
+            candOccupied.insert(p.y*S+p.x);
+          }
+        }
+      }
+    }
+    cerr << "best_all_score:" << bestAllScore << endl;
+    bestCandidates = bestCluster;
+    bestNumJunctions.assign(bestCluster.size(), 1);
+  }
+
   vector<int> buildJunctions(int _S, vector<int> _cities, double _junctionCost, double _failureProbability) {
     startTime = getTime();
     S = _S+1;
@@ -654,15 +1113,82 @@ class RoadsAndJunctions {
     cerr << "S:" << S << "\tNC:" << NC << "\tFP:" << failureProbability << "\tJC:" << junctionCost << endl;
     prepareBaseScore();
     prepareProbability();
+    // fuga();
     buildInitialMST();
     anneal();
     junctions.clear();
     vector<int> res;
     cerr << "msg:build multiple" << endl;
+    {
+      vector<Point> ps = cities;
+      for (int i=0; i < bestCandidates.size() ; i++) ps.push_back(bestCandidates[i].p);
+      const int n = ps.size();
+      // priority_queue<Node> que;
+      // que.push(Node(0, -1, 0));
+      // vector<uint8_t> used(n, 0);
+      vector<set<int>> link;
+      vector<Edge> edge;
+      double res = solveForBS(ps, link, edge);
+      // while (!que.empty()) {
+      //   auto cn = que.top();
+      //   que.pop();
+      //   auto p = ps[cn.idx];
+      //   if (used[cn.idx]) continue;
+      //   used[cn.idx] = 1;
+      //   res += sqrt(cn.cost);
+      //   if (cn.prev != -1) {
+      //     link[cn.prev].push_back(cn.idx);
+      //     link[cn.idx].push_back(cn.prev);
+      //   }
+      //   for (int i=0; i < n; i++) {
+      //     if (used[i]) continue;
+      //     int yy = p.y-ps[i].y;
+      //     int xx = p.x-ps[i].x;
+      //     int ncost = yy*yy+xx*xx;
+      //     que.push(Node(i, cn.idx, ncost));
+      //   }
+      // }
+      for (int i=NC; i < n; i++) {
+        if (link[i].size() == 0) {
+          bestNumJunctions[i-NC] = 0;
+        } else if (link[i].size() == 3) {
+          auto it = link[i].begin();
+          int a = *it;
+          it++;
+          int b = *it;
+          it++;
+          int c = *it;
+          double ab = sqrt(dist2(ps[a], ps[b]));
+          double bc = sqrt(dist2(ps[b], ps[c]));
+          double ca = sqrt(dist2(ps[c], ps[a]));
+          double ai = sqrt(dist2(ps[a], ps[i]));
+          double bi = sqrt(dist2(ps[b], ps[i]));
+          double ci = sqrt(dist2(ps[c], ps[i]));
+          double baseCost = ab + bc + ca - max(ab, max(bc, ca));
+          double bestCost = baseCost;
+          int bestCnt = 0;
+          for (int cnt=1; cnt < 10; cnt++) {
+            double sucP = multipleCost[cnt].second;
+            double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
+            // TODO
+            if (bestCost > cost) {
+              bestCost = cost;
+              bestCnt = cnt;
+            }
+          }
+          bestNumJunctions[i-NC] = bestCnt;
+          // cerr << bestCnt << " " << bestCost << " " << baseCost << endl;
+        } else {
+          bestNumJunctions[i-NC] = 1;
+        }
+      }
+      cerr << res << endl;
+    }
     for (int i=0; i < bestNumJunctions.size(); i++) {
       // bestNumJunctions[i] = 1;
       if (bestNumJunctions[i] == 0) continue;
-      int c = bestCandidates[i].cnt;
+      // int c = bestCandidates[i].cnt;
+      int c = bestNumJunctions[i];
       if (junctions.size()+c >= 2*NC) continue;
       auto sp = bestCandidates[i].p;
       priority_queue<pair<int, Point>> que;
