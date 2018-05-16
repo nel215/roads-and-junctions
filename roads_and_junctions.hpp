@@ -17,7 +17,7 @@ const double ticks_per_sec = 3200000000;
 const double timeLimit = 6.0;
 #else
 const double ticks_per_sec = 2800000000;
-const double timeLimit = 9.1;
+const double timeLimit = 9.6;
 #endif  // LOCAL
 inline double getTime() {
     uint32_t lo, hi;
@@ -320,6 +320,7 @@ class RoadsAndJunctions {
       auto cn = que.top();
       que.pop();
       auto p = ps[cn.idx];
+      // if (cn.cost == 0) return 1e10;
       if (used[cn.idx]) continue;
       used[cn.idx] = 1;
       res += sqrt(cn.cost);
@@ -367,6 +368,7 @@ class RoadsAndJunctions {
           deleted = true;
         }
       }
+      if (deleted) continue;
       for (int i=NC; i < n; i++) {
         if (link[i].size() == 0) continue;
         if (link[i].size() == 3) {
@@ -389,31 +391,36 @@ class RoadsAndJunctions {
           for (int cnt=1; cnt < 10; cnt++) {
             double sucP = multipleCost[cnt].second;
             double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
+            // cerr << "bbb" << sucP << " " << baseCost << " " << cost << endl;
             if (bestCost > cost) {
               bestCost = cost;
               bestCnt = cnt;
             }
           }
-          if (bestCnt == 0) {
-            link[a].erase(i);
-            link[b].erase(i);
-            link[c].erase(i);
-            link[i].clear();
-            if (maxEdge != ab) {
-              link[a].insert(b);
-              link[b].insert(a);
-            }
-            if (maxEdge != bc) {
-              link[b].insert(c);
-              link[c].insert(b);
-            }
-            if (maxEdge != ca) {
-              link[c].insert(a);
-              link[a].insert(c);
-            }
-            res += baseCost - (ai+bi+ci);
-            deleted = true;
+          if (bestCnt > 0) continue;
+          link[a].erase(i);
+          link[b].erase(i);
+          link[c].erase(i);
+          link[i].clear();
+          if (maxEdge == ab) {
+            link[b].insert(c);
+            link[c].insert(b);
+            link[c].insert(a);
+            link[a].insert(c);
+          } else if (maxEdge == bc) {
+            link[a].insert(b);
+            link[b].insert(a);
+            link[c].insert(a);
+            link[a].insert(c);
+          } else {
+            link[a].insert(b);
+            link[b].insert(a);
+            link[b].insert(c);
+            link[c].insert(b);
           }
+          res += baseCost - (ai+bi+ci);
+          deleted = true;
+          break;
         }
       }
       if (!deleted) break;
@@ -445,6 +452,7 @@ class RoadsAndJunctions {
           }
         }
         res += bestCost - (ai+bi+ci);
+        // cerr << res << endl;
       } else {
         res += junctionCost;
       }
@@ -469,13 +477,16 @@ class RoadsAndJunctions {
     return mypow(a.y-b.y) + mypow(a.x-b.x);
   }
   void buildInitialMST() {
+    const double thres = 2.0943951023931953;
     vector<vector<uint32_t> > hashSeed(S, vector<uint32_t>(S));
     for (int i=0; i < S; i++) {
       for (int j=0; j < S; j++) {
         hashSeed[i][j] = rng.rand();
       }
     }
-    const int beamSize = 5 * 1001 / S;
+    int beamSize = 1 * 100 / NC;
+    if (NC < 50) beamSize *= 3;
+    if (NC < 30) beamSize *= 3;
     vector<BeamNode> curQue;
     vector<set<int>> link;
     vector<Edge> edge;
@@ -483,7 +494,7 @@ class RoadsAndJunctions {
     vector<Edge> tmpEdge;
     curQue.push_back(BeamNode(cities, solveForBS(cities, tmpLink, tmpEdge)));
     auto best = curQue[0];
-    for (int q=0; q < 25; q++) {
+    for (int q=0; q < 30; q++) {
       vector<BeamNode> nextQue;
       set<uint32_t> hashSet;
       for (int bi=0; bi < curQue.size(); bi++) {
@@ -499,6 +510,65 @@ class RoadsAndJunctions {
         }
         // solve current graph
         double currentScore = solveForBS(ps, link, edge);
+        DelaunayTriangulation tri(ps);
+        auto _graph = tri.solve();
+        vector<vector<int>> graph(NC, vector<int>());
+        for (int i=0; i < NC; i++) graph[i] = vector<int>(_graph[i].begin(), _graph[i].end());
+        for (int i=0; i < NC; i++) {
+          for (int j=0; j < graph[i].size(); j++) {
+            int v = graph[i][j];
+            if (i > v) continue;
+            for (int k=j+1; k < graph[i].size(); k++) {
+              int u = graph[i][k];
+              // a -> b -> c
+              P a(ps[i].x, ps[i].y);
+              P b(ps[v].x, ps[v].y);
+              P c(ps[u].x, ps[u].y);
+              double oldCost = abs(a-b)+abs(b-c)+abs(c-a)-max(abs(a-b), max(abs(b-c), abs(c-a)));
+              double d = 0;
+              d = max(d, abs(arg((c-b)/(a-b))));
+              d = max(d, abs(arg((b-a)/(c-a))));
+              d = max(d, abs(arg((a-c)/(b-c))));
+              if (d >= thres) continue;
+              P p = a + b + c;
+              int y = p.imag() / 3;
+              int x = p.real() / 3;
+              double cost = calcSteinerCostDouble(i, u, v, y, x, ps);
+              while (1) {
+                int bestDir = 0;
+                double bestCost = 1<<30;
+                for (int i=0; i < 8; i++) {
+                  if (!valid(y+dy[i], x+dx[i])) continue;
+                  if (candOccupied[y+dy[i]][x+dx[i]]) continue;
+                  double newCost = calcSteinerCostDouble(i, u, v, y+dy[i], x+dx[i], ps);
+                  if (newCost < bestCost) {
+                    bestDir = i;
+                    bestCost = newCost;
+                  }
+                }
+                if (bestCost < cost) {
+                  cost = bestCost;
+                  y += dy[bestDir];
+                  x += dx[bestDir];
+                } else {
+                  break;
+                }
+              }
+              if (oldCost < cost) continue;
+              // cerr << oldCost << " " << cost << endl;
+              if (candOccupied[y][x]) continue;
+              vector<Point> jcs = ps;
+              jcs.push_back(Point(y, x));
+              double score = solveForBS(jcs, tmpLink, tmpEdge);
+              // cerr << score << endl;
+              // if (score > currentScore) continue;
+              uint32_t nextHash = hash ^ hashSeed[y][x];
+              if (hashSet.count(nextHash)) continue;
+              hashSet.insert(nextHash);
+              nextQue.push_back(BeamNode(jcs, score));
+            }
+          }
+        }
         // find pair
         // auto bestPair = make_pair(make_pair(0.0, 0), make_pair(Point(), Point()));
         // for (int i=0; i < edge.size(); i++) {
@@ -515,8 +585,8 @@ class RoadsAndJunctions {
         //     // a-b and c-d
         //     P X = (a + b) * 0.5;
         //     P Y = (c + d) * 0.5;
-        //     P Z1 = 0.9 * X + 0.1 * Y;
-        //     P Z2 = 0.1 * X + 0.9 * Y;
+        //     P Z1 = 0.4 * X + 0.6 * Y;
+        //     P Z2 = 0.6 * X + 0.4 * Y;
         //     int y1 = Z1.imag(), x1 = Z1.real();
         //     int y2 = Z2.imag(), x2 = Z2.real();
         //     double cost = calcSteinerCost2Double(ei.f, ei.t, ej.f, ej.t, y1, x1, y2, x2, ps);
@@ -560,22 +630,21 @@ class RoadsAndJunctions {
         //       }
         //       if (!updated) break;
         //     }
-        //     if (cost > oldCost) continue;
+        //     if (cost*0.8 > oldCost) continue;
+        //     cerr << cost << " " << abs(a-Z1)+abs(b-Z1)+abs(c-Z2)+abs(d-Z2)+abs(Z1-Z2) << " " << oldCost << endl;
         //     // cerr << cost << " " << abs(a-Z1)+abs(b-Z1)+abs(c-Z2)+abs(d-Z2)+abs(Z1-Z2) << endl;
         //     if (candOccupied[y1][x1] || candOccupied[y2][x2]) continue;
         //     vector<Point> jcs = ps;
         //     jcs.push_back(Point(y1, x1));
         //     jcs.push_back(Point(y2, x2));
-        //     double score = solveForBS(jcs);
+        //     double score = solveForBS(jcs, tmpLink, tmpEdge);
         //     if (score > currentScore) continue;
         //     nextQue.push_back(BeamNode(jcs, score));
         //   }
         // }
 
         // find point
-        const double thres = 2.0943951023931953;
-
-        auto bestPoint = make_pair(make_pair(0.0, 0), Point(-1, -1));
+        // auto bestPoint = make_pair(make_pair(0.0, 0), Point(-1, -1));
         for (int idx=0; idx < edge.size(); idx++) {
           auto e = edge[idx];
           for (auto v : link[e.f]) {
@@ -659,58 +728,6 @@ class RoadsAndJunctions {
     vector<set<int>> link;
     vector<Edge> edge;
     double res = solveForBS(ps, link, edge);
-    // for (int i=NC; i < ps.size(); i++) {
-    //   cerr << link[i].size() << endl;
-    // }
-    // const int n = ps.size();
-    // priority_queue<Node> que;
-    // que.push(Node(0, -1, 0));
-    // vector<int> used(n, 0);
-    // vector<vector<int>> link(n, vector<int>());
-    // while (!que.empty()) {
-    //   auto top = que.top();
-    //   auto idx = top.idx;
-    //   que.pop();
-    //   if (used[idx]) continue;
-    //   used[idx] = 1;
-    //   res += sqrt(top.cost);
-    //   if (top.prev != -1) {
-    //     link[top.prev].push_back(idx);
-    //     link[idx].push_back(top.prev);
-    //   }
-    //   for (int i=0; i < ps.size(); i++) {
-    //     if (used[i]) continue;
-    //     int d = dist2(ps[idx], ps[i]);
-    //     que.push(Node(i, d, idx));
-    //   }
-    // }
-    // for (int i=NC; i < n; i++) {
-    //   if (link[i].size() == 3) {
-    //     int a = link[i][0];
-    //     int b = link[i][1];
-    //     int c = link[i][2];
-    //     double ab = sqrt(dist2(ps[a], ps[b]));
-    //     double bc = sqrt(dist2(ps[b], ps[c]));
-    //     double ca = sqrt(dist2(ps[c], ps[a]));
-    //     double ai = sqrt(dist2(ps[a], ps[i]));
-    //     double bi = sqrt(dist2(ps[b], ps[i]));
-    //     double ci = sqrt(dist2(ps[c], ps[i]));
-    //     double baseCost = ab + bc + ca - max(ab, max(bc, ca));
-    //     double bestCost = baseCost;
-    //     int bestCnt = 0;
-    //     for (int cnt=1; cnt < 10; cnt++) {
-    //       double sucP = multipleCost[cnt].second;
-    //       double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
-    //       if (bestCost > cost) {
-    //         bestCost = cost;
-    //         bestCnt = cnt;
-    //       }
-    //     }
-    //     res += bestCost - (ai+bi+ci);
-    //   } else {
-    //     res += junctionCost;
-    //   }
-    // }
     return res;
   }
   bool movable(const double score, const double currentScore, const double temperatue) {
@@ -719,7 +736,14 @@ class RoadsAndJunctions {
   }
   void anneal() {
     vector<int> actions = {
-      0,  // up/down
+      // 1,  // up/down
+      // 1,  // move
+      // 1,  // move
+      // 1,  // move
+      // 1,  // move
+      // 1,  // move
+      // 1,  // move
+      // 1,  // move
       1   // move
     };
     cerr << "msg:start annealing" << endl;
@@ -727,9 +751,9 @@ class RoadsAndJunctions {
     vector<int> numJunctions(candidates.size(), 1);
     bestNumJunctions = numJunctions;
     bestCandidates = candidates;
-    int sumNumber = candidates.size();
+    // return;
     double bestScore = solve(numJunctions);
-    double currentScore = 1e10;
+    double currentScore = bestScore;
     int annealCount = 0;
     while (1) {
       double elapsed = getTime() - startTime;
@@ -738,7 +762,7 @@ class RoadsAndJunctions {
       // double temperatue = 1. - elapsed / timeLimit;  // 1->0
       double temperatue = 0.6;
       int idx = rng.rand() % candidates.size();
-      int act = actions[rng.rand() % 2];
+      int act = actions[rng.rand() % actions.size()];
       if (act == 0) {
         numJunctions[idx] = 1 - numJunctions[idx];
         // int inst = 1 - 2*(rng.rand() & 1);
@@ -765,28 +789,27 @@ class RoadsAndJunctions {
         } else {
           candidates[idx].p.y += inst;
         }
-        double score = 1e10;
-        score = solve(numJunctions);
-        if (score < bestScore) {
-          // for (int i=0; i < numJunctions.size(); i++) {
-          //   cerr << numJunctions[i] << " ";
-          // }
-          // cerr << endl;
-          bestScore = score;
-          bestNumJunctions = numJunctions;
-          bestCandidates = candidates;
-          cerr << bestScore << endl;
-        }
+        double score = solve(numJunctions);
         if (movable(score, currentScore, temperatue)) {
           currentScore = score;
         } else {
-          if (currentScore > score) cerr << "hoge" << endl;
           if (xy) {
             candidates[idx].p.x -= inst;
           } else {
             candidates[idx].p.y -= inst;
           }
         }
+      }
+      if (currentScore < bestScore) {
+        // for (int i=0; i < numJunctions.size(); i++) {
+        //   cerr << numJunctions[i] << " ";
+        // }
+        // cerr << endl;
+        bestScore = currentScore;
+        bestNumJunctions = numJunctions;
+        bestCandidates = candidates;
+        cerr << bestScore << endl;
+        cerr << solve(bestNumJunctions) << endl;
       }
     }
     cerr << "anneal:" << annealCount << endl;
@@ -804,7 +827,9 @@ class RoadsAndJunctions {
     }
     multipleCost.resize(n);
     for (int i=0; i < n; i++) {
-      multipleCost[i] = make_pair(i*junctionCost, 1.-dp[i][0]);
+      // multipleCost[i] = make_pair(i*junctionCost, min(1.0, (1.-dp[i][0])*1.20));
+      multipleCost[i] = make_pair(i*junctionCost, min(1.0, (1.-dp[i][0])*1.00));
+      // multipleCost[i] = make_pair(i*junctionCost, min(1.0, (1.-dp[i][0])*1.00));
     }
   }
   struct Cand {
@@ -849,6 +874,71 @@ class RoadsAndJunctions {
     for (int i=NC; i < 3*NC; i++) {
       if (index.count(i) == 0) continue;
       bestCluster.push_back(Cluster(ps[i], jcCount[i]));
+    }
+  }
+  void piyo() {
+    const double thres = 2.0943951023931953;
+    DelaunayTriangulation tri(cities);
+    auto _graph = tri.solve();
+    vector<vector<int>> graph(NC, vector<int>());
+    vector<Point> ps = cities;
+    set<int> candOccupied;
+    for (auto p : cities) candOccupied.insert(p.y*S+p.x);
+    for (int i=0; i < NC; i++) graph[i] = vector<int>(_graph[i].begin(), _graph[i].end());
+    for (int i=0; i < NC; i++) {
+      for (int j=0; j < graph[i].size(); j++) {
+        int v = graph[i][j];
+        if (i > v) continue;
+        for (int k=j+1; k < graph[i].size(); k++) {
+          int u = graph[i][k];
+          // a -> b -> c
+          P a(ps[i].x, ps[i].y);
+          P b(ps[v].x, ps[v].y);
+          P c(ps[u].x, ps[u].y);
+          double oldCost = abs(a-b)+abs(b-c)+abs(c-a)-max(abs(a-b), max(abs(b-c), abs(c-a)));
+          double d = 0;
+          d = max(d, abs(arg((c-b)/(a-b))));
+          d = max(d, abs(arg((b-a)/(c-a))));
+          d = max(d, abs(arg((a-c)/(b-c))));
+          if (d >= thres) continue;
+          P p = (a + b + c) * (1./3);
+          int y = p.imag();
+          int x = p.real();
+          double cost = calcSteinerCostDouble(i, v, u, y, x, ps);
+          while (1) {
+            int bestDir = 0;
+            double bestCost = 1e10;
+            for (int i=0; i < 8; i++) {
+              int ny = y+dy[i], nx = x+dx[i];
+              if (!valid(ny, nx)) continue;
+              if (candOccupied.count(ny*S+nx)) continue;
+              double newCost = calcSteinerCostDouble(i, v, u, ny, nx, ps);
+              if (newCost < bestCost) {
+                bestDir = i;
+                bestCost = newCost;
+              }
+            }
+            if (bestCost >= cost) break;
+            cost = bestCost;
+            y += dy[bestDir];
+            x += dx[bestDir];
+          }
+          if (candOccupied.count(y*S+x)) continue;
+          if (cost > oldCost) continue;
+          candOccupied.insert(y*S+x);
+          ps.push_back(Point(y, x));
+        }
+      }
+    }
+    vector<set<int>> tmpLink;
+    vector<Edge> tmpEdge;
+    cerr << "piyo" << solveForBS(ps, tmpLink, tmpEdge) << endl;
+    bestCandidates.clear();
+    bestNumJunctions.clear();
+    for (int i=NC; i < ps.size(); i++) {
+      cerr << ps[i].x << " " << ps[i].y << endl;
+      bestCandidates.push_back(Cluster(ps[i], 1));
+      bestNumJunctions.push_back(1);
     }
   }
   void fuga() {
@@ -1095,6 +1185,57 @@ class RoadsAndJunctions {
     bestCandidates = bestCluster;
     bestNumJunctions.assign(bestCluster.size(), 1);
   }
+  void random() {
+    vector<set<int>> tmpLink;
+    vector<Edge> tmpEdge;
+    double bestScore = solveForBS(cities, tmpLink, tmpEdge);
+    auto bestCand = cities;
+    vector<Point> ps(min(3*NC, NC+10));
+    set<int> used;
+    for (int i=0; i < NC; i++) ps[i] = cities[i];
+    for (int i=NC; i < ps.size(); i++) {
+      int y = rng.rand() % S;
+      int x = rng.rand() % S;
+      while (used.count(y*S+x) || occupied[y][x]) {
+        y = rng.rand() % S;
+        x = rng.rand() % S;
+      }
+      used.insert(y*S+x);
+      ps[i].y = y;
+      ps[i].x = x;
+    }
+    while (1) {
+      double elapsed = getTime() - startTime;
+      if (elapsed >= timeLimit) break;
+      double temperatue = 1. - elapsed / timeLimit;  // 1->0
+      used = set<int>();
+      for (int i=NC; i < ps.size(); i++) {
+        int y = ps[i].y + 2 - rng.rand() % 5;
+        int x = ps[i].x + 2 - rng.rand() % 5;
+        while (!valid(y, x) || used.count(y*S+x) || occupied[y][x]) {
+          y = ps[i].y + 2 - rng.rand() % 5;
+          x = ps[i].x + 2 - rng.rand() % 5;
+        }
+        ps[i].y = y;
+        ps[i].x = x;
+        used.insert(y*S+x);
+      }
+      double score = solveForBS(ps, tmpLink, tmpEdge);
+      // cerr << score << endl;
+      if (bestScore > score) {
+        bestScore = score;
+        bestCand = ps;
+        cerr << bestScore << endl;
+      }
+    }
+    bestCandidates.clear();
+    bestNumJunctions.clear();
+    for (int i=NC; i < bestCand.size(); i++) {
+      cerr << bestCand[i].x << " " << bestCand[i].y << endl;
+      bestCandidates.push_back(Cluster(bestCand[i], 1));
+      bestNumJunctions.push_back(1);
+    }
+  }
 
   vector<int> buildJunctions(int _S, vector<int> _cities, double _junctionCost, double _failureProbability) {
     startTime = getTime();
@@ -1113,84 +1254,71 @@ class RoadsAndJunctions {
     cerr << "S:" << S << "\tNC:" << NC << "\tFP:" << failureProbability << "\tJC:" << junctionCost << endl;
     prepareBaseScore();
     prepareProbability();
+    // random();
     // fuga();
+    // piyo();
     buildInitialMST();
     anneal();
     junctions.clear();
     vector<int> res;
     cerr << "msg:build multiple" << endl;
-    {
-      vector<Point> ps = cities;
-      for (int i=0; i < bestCandidates.size() ; i++) ps.push_back(bestCandidates[i].p);
-      const int n = ps.size();
-      // priority_queue<Node> que;
-      // que.push(Node(0, -1, 0));
-      // vector<uint8_t> used(n, 0);
-      vector<set<int>> link;
-      vector<Edge> edge;
-      double res = solveForBS(ps, link, edge);
-      // while (!que.empty()) {
-      //   auto cn = que.top();
-      //   que.pop();
-      //   auto p = ps[cn.idx];
-      //   if (used[cn.idx]) continue;
-      //   used[cn.idx] = 1;
-      //   res += sqrt(cn.cost);
-      //   if (cn.prev != -1) {
-      //     link[cn.prev].push_back(cn.idx);
-      //     link[cn.idx].push_back(cn.prev);
-      //   }
-      //   for (int i=0; i < n; i++) {
-      //     if (used[i]) continue;
-      //     int yy = p.y-ps[i].y;
-      //     int xx = p.x-ps[i].x;
-      //     int ncost = yy*yy+xx*xx;
-      //     que.push(Node(i, cn.idx, ncost));
-      //   }
-      // }
-      for (int i=NC; i < n; i++) {
-        if (link[i].size() == 0) {
-          bestNumJunctions[i-NC] = 0;
-        } else if (link[i].size() == 3) {
-          auto it = link[i].begin();
-          int a = *it;
-          it++;
-          int b = *it;
-          it++;
-          int c = *it;
-          double ab = sqrt(dist2(ps[a], ps[b]));
-          double bc = sqrt(dist2(ps[b], ps[c]));
-          double ca = sqrt(dist2(ps[c], ps[a]));
-          double ai = sqrt(dist2(ps[a], ps[i]));
-          double bi = sqrt(dist2(ps[b], ps[i]));
-          double ci = sqrt(dist2(ps[c], ps[i]));
-          double baseCost = ab + bc + ca - max(ab, max(bc, ca));
-          double bestCost = baseCost;
-          int bestCnt = 0;
-          for (int cnt=1; cnt < 10; cnt++) {
-            double sucP = multipleCost[cnt].second;
-            double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
-            // TODO
-            if (bestCost > cost) {
-              bestCost = cost;
-              bestCnt = cnt;
-            }
-          }
-          bestNumJunctions[i-NC] = bestCnt;
-          // cerr << bestCnt << " " << bestCost << " " << baseCost << endl;
-        } else {
-          bestNumJunctions[i-NC] = 1;
-        }
-      }
-      cerr << res << endl;
+    vector<Point> ps = cities;
+    for (int i=0; i < bestCandidates.size() ; i++) {
+      if (bestNumJunctions[i] == 0) continue;
+      ps.push_back(bestCandidates[i].p);
     }
+    const int n = ps.size();
+    // priority_queue<Node> que;
+    // que.push(Node(0, -1, 0));
+    // vector<uint8_t> used(n, 0);
+    bestNumJunctions.clear();
+    vector<set<int>> link;
+    vector<Edge> edge;
+    double tmpScore = solveForBS(ps, link, edge);
+    for (int i=NC; i < n; i++) {
+      if (link[i].size() == 0) {
+        bestNumJunctions.push_back(0);
+      } else if (link[i].size() == 3) {
+        auto it = link[i].begin();
+        int a = *it;
+        it++;
+        int b = *it;
+        it++;
+        int c = *it;
+        double ab = sqrt(dist2(ps[a], ps[b]));
+        double bc = sqrt(dist2(ps[b], ps[c]));
+        double ca = sqrt(dist2(ps[c], ps[a]));
+        double ai = sqrt(dist2(ps[a], ps[i]));
+        double bi = sqrt(dist2(ps[b], ps[i]));
+        double ci = sqrt(dist2(ps[c], ps[i]));
+        double baseCost = ab + bc + ca - max(ab, max(bc, ca));
+        double bestCost = baseCost;
+        int bestCnt = 0;
+        for (int cnt=1; cnt < 10; cnt++) {
+          double sucP = multipleCost[cnt].second;
+          double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
+          // TODO
+          if (bestCost > cost) {
+            bestCost = cost;
+            bestCnt = cnt;
+          }
+        }
+        bestNumJunctions.push_back(bestCnt);
+        // cerr << bestCnt << " " << bestCost << " " << baseCost << endl;
+      } else {
+        bestNumJunctions.push_back(1);
+      }
+    }
+    cerr << tmpScore << endl;
+
     for (int i=0; i < bestNumJunctions.size(); i++) {
       // bestNumJunctions[i] = 1;
+      cerr << bestNumJunctions[i] << endl;
       if (bestNumJunctions[i] == 0) continue;
       // int c = bestCandidates[i].cnt;
       int c = bestNumJunctions[i];
       if (junctions.size()+c >= 2*NC) continue;
-      auto sp = bestCandidates[i].p;
+      auto sp = ps[i+NC];
       priority_queue<pair<int, Point>> que;
       que.push(make_pair(0, sp));
       while (!que.empty()) {
