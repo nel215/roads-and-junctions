@@ -1,0 +1,5 @@
+*.png
+*.class
+.python-version
+a.out
+log/*
