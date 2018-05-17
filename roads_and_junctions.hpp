@@ -223,7 +223,6 @@ class RoadsAndJunctions {
   vector<Point> cities;
   double junctionCost;
   double failureProbability;
-  vector<vector<int> > nearestCity;
   vector<Cluster> candidates;
   double startTime;
   vector<int> bestNumJunctions;
@@ -441,13 +440,11 @@ class RoadsAndJunctions {
         double ci = sqrt(dist2(ps[c], ps[i]));
         double baseCost = ab + bc + ca - max(ab, max(bc, ca));
         double bestCost = baseCost;
-        int bestCnt = 0;
         for (int cnt=1; cnt < 10; cnt++) {
           double sucP = multipleCost[cnt].second;
           double cost = sucP*(ai+bi+ci) + (1.-sucP)*baseCost + cnt*junctionCost;
           if (bestCost > cost) {
             bestCost = cost;
-            bestCnt = cnt;
           }
         }
         res += bestCost - (ai+bi+ci);
@@ -506,8 +503,8 @@ class RoadsAndJunctions {
           candOccupied[ps[i].y][ps[i].x] = 1;
           hash ^= hashSeed[ps[i].y][ps[i].x];
         }
-        // solve current graph
-        double currentScore = solveForBS(ps, link, edge);
+        // solve current graph for link and edge
+        solveForBS(ps, link, edge);
         DelaunayTriangulation tri(ps);
         auto _graph = tri.solve();
         vector<vector<int>> graph(NC, vector<int>());
@@ -654,17 +651,6 @@ class RoadsAndJunctions {
     return p > rng.uniform();
   }
   void anneal() {
-    vector<int> actions = {
-      // 1,  // up/down
-      // 1,  // move
-      // 1,  // move
-      // 1,  // move
-      // 1,  // move
-      // 1,  // move
-      // 1,  // move
-      // 1,  // move
-      1   // move
-    };
     cerr << "msg:start annealing" << endl;
     if (candidates.empty()) return;
     vector<int> numJunctions(candidates.size(), 1);
@@ -681,33 +667,21 @@ class RoadsAndJunctions {
       // double temperatue = 1. - elapsed / timeLimit;  // 1->0
       double temperatue = 0.6;
       int idx = rng.rand() % candidates.size();
-      int act = actions[rng.rand() % actions.size()];
-      if (act == 0) {
-        numJunctions[idx] = 1 - numJunctions[idx];
-        double score = solve(numJunctions);
-        if (movable(score, currentScore, temperatue)) {
-          currentScore = score;
-        } else {
-          numJunctions[idx] = 1 - numJunctions[idx];
-        }
+      int xy = rng.rand() & 1;
+      int inst = 1 - rng.rand() % 3;
+      if (xy) {
+        candidates[idx].p.x += inst;
+      } else {
+        candidates[idx].p.y += inst;
       }
-      if (act == 1) {
-        int xy = rng.rand() & 1;
-        int inst = 1 - rng.rand() % 3;
+      double score = solve(numJunctions);
+      if (movable(score, currentScore, temperatue)) {
+        currentScore = score;
+      } else {
         if (xy) {
-          candidates[idx].p.x += inst;
+          candidates[idx].p.x -= inst;
         } else {
-          candidates[idx].p.y += inst;
-        }
-        double score = solve(numJunctions);
-        if (movable(score, currentScore, temperatue)) {
-          currentScore = score;
-        } else {
-          if (xy) {
-            candidates[idx].p.x -= inst;
-          } else {
-            candidates[idx].p.y -= inst;
-          }
+          candidates[idx].p.y -= inst;
         }
       }
       if (currentScore < bestScore) {
@@ -732,53 +706,7 @@ class RoadsAndJunctions {
     }
     multipleCost.resize(n);
     for (int i=0; i < n; i++) {
-      // multipleCost[i] = make_pair(i*junctionCost, min(1.0, (1.-dp[i][0])*1.20));
-      multipleCost[i] = make_pair(i*junctionCost, min(1.0, (1.-dp[i][0])*1.00));
-      // multipleCost[i] = make_pair(i*junctionCost, min(1.0, (1.-dp[i][0])*1.00));
-    }
-  }
-  struct Cand {
-    double diff;
-    int count;
-    int a, b, c;
-    Point p;
-    Cand() {
-      diff = -1e9;
-    }
-    Cand(double _diff, int _count, int _a, int _b, int _c, Point _p) {
-      diff = _diff;
-      count = _count;
-      a = _a;
-      b = _b;
-      c = _c;
-      p = _p;
-    }
-  };
-  double evaluate(const set<int> &index, const vector<Point> &ps, const vector<int> jcCount) {
-    double sum = 0;
-    priority_queue<Node> que;
-    vector<uint8_t> used(3*NC, 0);
-    que.push(Node(0, -1, 0));
-    while (!que.empty()) {
-      auto cn = que.top();
-      que.pop();
-      if (used[cn.idx]) continue;
-      if (cn.idx >= NC) sum += junctionCost * jcCount[cn.idx];
-      sum += sqrt(cn.cost);
-      used[cn.idx] = 1;
-      for (int i : index) {
-        if (used[i]) continue;
-        int d = mypow(ps[i].y-ps[cn.idx].y) + mypow(ps[i].x-ps[cn.idx].x);
-        que.push(Node(i, cn.idx, d));
-      }
-    }
-    return sum;
-  }
-  void setBestClusters(const set<int> &index, const vector<Point> &ps, const vector<int> &jcCount, vector<Cluster> &bestCluster) {
-    bestCluster.clear();
-    for (int i=NC; i < 3*NC; i++) {
-      if (index.count(i) == 0) continue;
-      bestCluster.push_back(Cluster(ps[i], jcCount[i]));
+      multipleCost[i] = make_pair(i*junctionCost, 1.-dp[i][0]);
     }
   }
   vector<int> buildJunctions(int _S, vector<int> _cities, double _junctionCost, double _failureProbability) {
@@ -812,7 +740,7 @@ class RoadsAndJunctions {
     bestNumJunctions.clear();
     vector<set<int>> link;
     vector<Edge> edge;
-    double tmpScore = solveForBS(ps, link, edge);
+    solveForBS(ps, link, edge);
     for (int i=NC; i < n; i++) {
       if (link[i].size() == 0) {
         bestNumJunctions.push_back(0);
@@ -845,7 +773,6 @@ class RoadsAndJunctions {
         bestNumJunctions.push_back(1);
       }
     }
-    cerr << tmpScore << endl;
 
     for (int i=0; i < bestNumJunctions.size(); i++) {
       if (bestNumJunctions[i] == 0) continue;
